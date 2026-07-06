@@ -180,6 +180,32 @@ def init_db():
         grupo TEXT, ig REAL, sodio_mg REAL, calcio_mg REAL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_alimentos_nombre ON alimentos(nombre);
+    CREATE TABLE IF NOT EXISTS usuarios_sistema (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        usuario TEXT UNIQUE NOT NULL,
+        nombre TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        rol TEXT NOT NULL DEFAULT 'entrenador',
+        activo INTEGER DEFAULT 1,
+        creado TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS activity_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+        usuario TEXT,
+        rol TEXT,
+        accion TEXT,
+        detalle TEXT,
+        rut_afectado TEXT
+    );
+    CREATE TABLE IF NOT EXISTS usuarios_clientes (
+        rut TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        activo INTEGER DEFAULT 1,
+        ultimo_acceso TEXT,
+        creado TEXT DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS planes_nutri (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         cliente_rut TEXT NOT NULL,
@@ -315,6 +341,38 @@ def _seed_alimentos():
         _conn_a.commit(); _conn_a.close()
     except Exception as _ea: pass
 _seed_alimentos()
+
+# ── Seed usuarios_sistema desde dict USUARIOS si tabla vacía ─────────────
+try:
+    _cn_us=get_conn()
+    if _cn_us.execute("SELECT COUNT(*) FROM usuarios_sistema").fetchone()[0]==0:
+        for _uk,_uv in USUARIOS.items():
+            _cn_us.execute("INSERT OR IGNORE INTO usuarios_sistema (usuario,nombre,password_hash,rol,activo) VALUES (?,?,?,?,1)",
+                (_uk,_uv["nombre"],_uv["hash"],_uv["rol"]))
+        _cn_us.commit()
+    _cn_us.close()
+except: pass
+
+# ── Backup automático cada 24h (últimos 5) ───────────────────────────────
+try:
+    import shutil, glob
+    _bk_dir = os.path.join(BASE_DIR,"backups")
+    os.makedirs(_bk_dir, exist_ok=True)
+    _bk_last_f = os.path.join(_bk_dir,"last_backup.txt")
+    _bk_do = True
+    if os.path.exists(_bk_last_f):
+        with open(_bk_last_f) as _f: _bk_last=_f.read().strip()
+        try:
+            _bk_dt=datetime.fromisoformat(_bk_last)
+            if (datetime.now()-_bk_dt).total_seconds() < 86400: _bk_do=False
+        except: pass
+    if _bk_do and os.path.exists(DB_PATH):
+        _bk_name=f"putu_activo_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.db"
+        shutil.copy2(DB_PATH, os.path.join(_bk_dir,_bk_name))
+        with open(_bk_last_f,"w") as _f: _f.write(datetime.now().isoformat())
+        _bk_files=sorted(glob.glob(os.path.join(_bk_dir,"putu_activo_*.db")))
+        for _bk_old in _bk_files[:-5]: os.remove(_bk_old)
+except: pass
 
 # ── Migrar días de semana a Día 1..6 por rutina (consecutivo según orden de aparición) ──
 try:
@@ -463,6 +521,18 @@ def msg_renovacion(nombre, fecha_venc):
     fv = str(fecha_venc)[:10] if fecha_venc else ""
     return f"Hola *{nombre}*, tu plan en Putú Activo se renovó hasta el *{fv}*. ¡Sigue entrenando con nosotros! 🏋️"
 
+def log_action(accion, detalle="", rut_afectado=""):
+    """Registra actividad en el log."""
+    try:
+        import streamlit as _st2
+        _usr=_st2.session_state.get("usuario","sistema")
+        _rol=_st2.session_state.get("rol","")
+        _cn=get_conn()
+        _cn.execute("INSERT INTO activity_log (timestamp,usuario,rol,accion,detalle,rut_afectado) VALUES (?,?,?,?,?,?)",
+            (datetime.now().isoformat(),_usr,_rol,accion,str(detalle)[:500],str(rut_afectado)))
+        _cn.commit(); _cn.close()
+    except: pass
+
 def sv(row, col, d=""):
     v = row.get(col,d) if isinstance(row,dict) else getattr(row,col,d)
     s = d if str(v) in ["nan","None","NaT","<NA>",""] else str(v)
@@ -589,6 +659,18 @@ st.markdown(f"""
 html,body,[class*="css"]{{font-family:'Inter',sans-serif;background:{NEGRO};color:{BLANCO};font-size:17px;}}
 .stApp{{background:{NEGRO};}}
   .block-container{{padding-top:0.2rem !important;padding-bottom:0rem !important;max-width:100% !important;}}
+  /* Reducir espacios internos para aprovechar pantalla */
+  div[data-testid="stVerticalBlock"] > div {{gap:0.25rem !important;}}
+  div[data-testid="stHorizontalBlock"] {{gap:0.4rem !important;}}
+  .element-container {{margin-bottom:0.1rem !important;}}
+  /* Tabs pegados sin espacio extra */
+  .stTabs [data-baseweb="tab-panel"] {{padding-top:0.4rem !important;padding-bottom:0.2rem !important;}}
+  div[data-testid="stTabsContent"] {{padding-top:0.3rem !important;}}
+  /* Reducir espacio entre sección y tabs */
+  hr {{margin:0.3rem 0 !important;}}
+  /* Métricas más compactas */
+  div[data-testid="metric-container"] {{padding:10px 14px !important;}}
+  div[data-testid="metric-container"] div[data-testid="metric-value"] {{font-size:1.8rem !important;}}
   header[data-testid="stHeader"]{{height:0 !important;min-height:0 !important;display:none !important;}}
   div[data-testid="stToolbar"]{{display:none !important;}}
   div[data-testid="stDecoration"]{{display:none !important;}}
@@ -744,22 +826,18 @@ if not sesion_valida() and not st.session_state.modo:
     else:
         st.markdown(f'<div style="text-align:center;font-size:2rem;font-weight:900;color:{VERDE}">🏋️ PUTÚ ACTIVO</div>',unsafe_allow_html=True)
     st.markdown(f'<div style="text-align:center;color:{GRIS_T};font-size:.95rem;margin:4px 0 16px;letter-spacing:.08em;">CENTRO DE ENTRENAMIENTO</div>',unsafe_allow_html=True)
-    _,bc1,bc2,_ = st.columns([1,2,2,1])
+    _,bc1,bc2,bc3,_ = st.columns([1,1.4,1.4,1.4,1])
     with bc1:
-        st.markdown(f'''<div style="background:{GRIS2};border:3px solid {VERDE};border-radius:14px;padding:18px 12px;text-align:center;margin-bottom:8px;">
-          <div style="font-size:2.5rem">🏋️</div>
-          <div style="font-size:1.2rem;font-weight:900;color:{VERDE};margin-top:6px">CLIENTES</div>
-          <div style="color:{GRIS_T};font-size:.8rem;margin-top:3px">Asistencia · Mi ficha</div>
-        </div>''',unsafe_allow_html=True)
-        if st.button("✅ Entrar", key="btn_cliente", use_container_width=True):
+        st.markdown(f'<style>div[data-testid="stButton"]:has(button[data-testid="btn_cliente"]) button{{background:{GRIS2}!important;border:3px solid {VERDE}!important;border-radius:16px!important;padding:28px 16px!important;height:auto!important;white-space:normal!important;color:{VERDE}!important;font-size:1.1rem!important;font-weight:900!important;line-height:2!important;letter-spacing:.05em}}</style>',unsafe_allow_html=True)
+        if st.button("🏋️\n\nASISTENCIA\n\nMarcar entrada · Salida", key="btn_cliente", use_container_width=True):
             st.session_state.modo="cliente"; st.rerun()
     with bc2:
-        st.markdown(f'''<div style="background:{GRIS2};border:3px solid {GRIS3};border-radius:14px;padding:18px 12px;text-align:center;margin-bottom:8px;">
-          <div style="font-size:2.5rem">🔐</div>
-          <div style="font-size:1.2rem;font-weight:900;color:{BLANCO};margin-top:6px">ADMIN</div>
-          <div style="color:{GRIS_T};font-size:.8rem;margin-top:3px">Gestión completa</div>
-        </div>''',unsafe_allow_html=True)
-        if st.button("🔐 Ingresar", key="btn_admin", use_container_width=True):
+        st.markdown(f'<style>div[data-testid="stButton"]:has(button[data-testid="btn_micuenta"]) button{{background:{GRIS2}!important;border:3px solid {AZUL}!important;border-radius:16px!important;padding:28px 16px!important;height:auto!important;white-space:normal!important;color:{AZUL}!important;font-size:1.1rem!important;font-weight:900!important;line-height:2!important;letter-spacing:.05em}}</style>',unsafe_allow_html=True)
+        if st.button("👤\n\nMI CUENTA\n\nRutina · Evaluación · Pagos", key="btn_micuenta", use_container_width=True):
+            st.session_state.modo="micuenta"; st.rerun()
+    with bc3:
+        st.markdown(f'<style>div[data-testid="stButton"]:has(button[data-testid="btn_admin"]) button{{background:{GRIS2}!important;border:3px solid #888!important;border-radius:16px!important;padding:28px 16px!important;height:auto!important;white-space:normal!important;color:{BLANCO}!important;font-size:1.1rem!important;font-weight:900!important;line-height:2!important;letter-spacing:.05em}}</style>',unsafe_allow_html=True)
+        if st.button("🔐\n\nADMIN\n\nGestión completa", key="btn_admin", use_container_width=True):
             st.session_state.modo="admin"; st.rerun()
     st.stop()
 
@@ -779,16 +857,130 @@ if st.session_state.modo == "admin" and not sesion_valida() and not st.session_s
             ok=st.form_submit_button("Ingresar →",use_container_width=True)
         if ok:
             uu=u.strip().lower()
-            if uu in USUARIOS and USUARIOS[uu]["hash"]==_h(p):
+            # Buscar en BD primero, luego fallback a dict
+            _us_row=get_conn().execute("SELECT nombre,rol,password_hash FROM usuarios_sistema WHERE usuario=? AND activo=1",(uu,)).fetchone()
+            if _us_row and _us_row[2]==_h(p):
+                st.session_state.update({"logueado":True,"login_time":time.time(),
+                    "usuario":uu,"rol":_us_row[1],"nombre_u":_us_row[0],"ver_rut":None,"modo":"admin"})
+                log_action("LOGIN",f"Acceso exitoso de {_us_row[0]}"); st.rerun()
+            elif uu in USUARIOS and USUARIOS[uu]["hash"]==_h(p):
                 st.session_state.update({"logueado":True,"login_time":time.time(),
                     "usuario":uu,"rol":USUARIOS[uu]["rol"],"nombre_u":USUARIOS[uu]["nombre"],
                     "ver_rut":None,"modo":"admin"})
-                st.rerun()
+                log_action("LOGIN",f"Acceso exitoso (fallback) de {USUARIOS[uu]['nombre']}"); st.rerun()
             else:
                 st.markdown('<div class="alert-box">⚠️ Usuario o contraseña incorrectos.</div>',unsafe_allow_html=True)
         st.markdown(f'<div style="background:{GRIS2};border-radius:10px;padding:12px 16px;margin-top:12px;font-size:.82rem;color:#666;">admin/putu2025 · entrenador/gym123 · asistente/asist1</div>',unsafe_allow_html=True)
         if st.button("← Volver al inicio", key="volver_login"):
             st.session_state.modo=""; st.rerun()
+    st.stop()
+
+# ── Login MI CUENTA (cliente con email+password) ────────────────────────────
+if st.session_state.modo == "micuenta" and not st.session_state.get("cliente_logueado"):
+    _,_cc2,_ = st.columns([1.2,0.8,1.2])
+    with _cc2:
+        if LOGO_PATH:
+            import base64 as _b64c
+            _logo_b64c=_b64c.b64encode(open(LOGO_PATH,"rb").read()).decode()
+            st.markdown(f'<div style="text-align:center;margin:0 auto 6px auto"><img src="data:image/png;base64,{_logo_b64c}" style="width:120px;max-width:55vw;display:block;margin:0 auto"></div>',unsafe_allow_html=True)
+        st.markdown(f'<div style="text-align:center;padding:4px 0;color:{GRIS_T};font-size:.88rem;letter-spacing:.1em">MI CUENTA</div>',unsafe_allow_html=True)
+        with st.form("login_cliente"):
+            _email_c=st.text_input("✉️ Email",placeholder="tu@email.com")
+            _pass_c=st.text_input("🔒 Contraseña",type="password",placeholder="••••••••")
+            _ok_c=st.form_submit_button("Ingresar →",use_container_width=True)
+        if _ok_c:
+            _uc=get_conn().execute(
+                "SELECT rut,activo FROM usuarios_clientes WHERE email=? AND password_hash=?",
+                (_email_c.strip().lower(),_h(_pass_c))).fetchone()
+            if _uc and _uc[1]==1:
+                get_conn().execute("UPDATE usuarios_clientes SET ultimo_acceso=? WHERE rut=?",
+                    (datetime.now().isoformat(),_uc[0]))
+                get_conn().commit()
+                st.session_state.update({"cliente_logueado":True,"cliente_rut":_uc[0],"modo":"micuenta"})
+                st.rerun()
+            else:
+                st.markdown('<div class="alert-box">⚠️ Email o contraseña incorrectos, o cuenta inactiva.</div>',unsafe_allow_html=True)
+        if st.button("← Volver al inicio",key="volver_micuenta"):
+            st.session_state.modo=""; st.rerun()
+    st.stop()
+
+# ── Vista MI CUENTA — ficha personal del cliente ─────────────────────────────
+if st.session_state.modo == "micuenta" and st.session_state.get("cliente_logueado"):
+    _rut_mc=st.session_state.get("cliente_rut","")
+    _df_mc=db_query("SELECT * FROM clientes WHERE rut=?",(_rut_mc,))
+    if _df_mc.empty:
+        st.error("No se encontró tu ficha. Contacta al administrador.")
+        if st.button("← Salir"): st.session_state.update({"cliente_logueado":False,"modo":""}); st.rerun()
+        st.stop()
+    _r_mc=_df_mc.iloc[0].to_dict()
+    # Encabezado
+    _mc1,_mc2=st.columns([5,1])
+    _mc1.markdown(f'<div style="border-left:4px solid {AZUL};padding-left:12px;"><span style="font-size:1.3rem;font-weight:900;color:{AZUL}">{sv(_r_mc,"nombre")}</span> <span style="color:{GRIS_T};font-size:.85rem">· {_rut_mc}</span></div>',unsafe_allow_html=True)
+    if _mc2.button("🚪 Salir",key="mc_salir"):
+        st.session_state.update({"cliente_logueado":False,"cliente_rut":"","modo":""}); st.rerun()
+    st.markdown("---")
+    # Tabs solo lectura
+    _tmc1,_tmc2,_tmc3,_tmc4=st.tabs(["💪 Mi Rutina","📏 Evaluaciones","💳 Pagos","🥗 Nutrición"])
+
+    with _tmc1:
+        _rut_mc_r=db_query("SELECT * FROM rutinas WHERE cliente_rut=? AND activa=1 ORDER BY id DESC LIMIT 1",(_rut_mc,))
+        if _rut_mc_r.empty:
+            st.markdown('<div class="info-box">Sin rutina activa. Consulta a tu entrenador.</div>',unsafe_allow_html=True)
+        else:
+            _rutmc=_rut_mc_r.iloc[0].to_dict()
+            st.markdown(f"<b style='color:{AZUL}'>{_rutmc['nombre']}</b>",unsafe_allow_html=True)
+            _ejs_mc=db_query("""SELECT re.*,e.nombre,e.url_imagen,e.musculo_primario
+                FROM rutina_ejercicios re JOIN ejercicios e ON e.id=re.ejercicio_id
+                WHERE re.rutina_id=? ORDER BY re.dia_semana,re.orden""",(int(_rutmc["id"]),))
+            if not _ejs_mc.empty:
+                _dias_mc=[d for d in ["Día 1","Día 2","Día 3","Día 4","Día 5","Día 6"] if d in _ejs_mc["dia_semana"].values]
+                _hcols_mc=st.columns(len(_dias_mc)) if _dias_mc else []
+                for _ic_mc,_cc_mc in enumerate(_hcols_mc):
+                    _cc_mc.markdown(f'<div style="background:{AZUL};color:#fff;text-align:center;font-weight:700;font-size:.78rem;padding:5px 2px;border-radius:6px 6px 0 0">{_dias_mc[_ic_mc]}</div>',unsafe_allow_html=True)
+                _bcols_mc=st.columns(len(_dias_mc)) if _dias_mc else []
+                for _ic2_mc,(_cb_mc,_dfl_mc) in enumerate(zip(_bcols_mc,_dias_mc)):
+                    _ddf_mc=_ejs_mc[_ejs_mc["dia_semana"]==_dfl_mc]
+                    with _cb_mc:
+                        for _ii_mc,(_,_ef_mc) in enumerate(_ddf_mc.iterrows(),1):
+                            _efd_mc=_ef_mc.to_dict()
+                            with st.container(border=True):
+                                _iurl_mc=str(_efd_mc.get("url_imagen","")).strip()
+                                if _iurl_mc and _iurl_mc!="nan":
+                                    try: st.image(_iurl_mc,use_container_width=True)
+                                    except: pass
+                                st.markdown(f'<div style="font-size:.72rem;font-weight:700;color:{BLANCO}">{_ii_mc}. {_efd_mc.get("nombre","")}</div>',unsafe_allow_html=True)
+                                st.markdown(f'<div style="font-size:.68rem;color:{AZUL}">{sv(_efd_mc,"series","—")}×{sv(_efd_mc,"repeticiones","—")}</div>',unsafe_allow_html=True)
+
+    with _tmc2:
+        _ev_mc=db_query("SELECT * FROM evaluaciones WHERE rut=? ORDER BY fecha DESC",(_rut_mc,))
+        if _ev_mc.empty:
+            st.markdown('<div class="info-box">Sin evaluaciones registradas.</div>',unsafe_allow_html=True)
+        else:
+            _ult_mc=_ev_mc.iloc[0]
+            _em1,_em2,_em3,_em4=st.columns(4)
+            def _emv_mc(k,u=""): v=_ult_mc.get(k); return f"{float(v):.1f}{u}" if v and str(v) not in ["nan","None","0.0"] else "—"
+            _em1.metric("⚖️ Peso",_emv_mc("peso"," kg")); _em2.metric("📊 IMC",_emv_mc("imc"))
+            _em3.metric("🔴 Grasa",_emv_mc("grasa_pct"," %")); _em4.metric("💪 Musc.",_emv_mc("masa_musc"," %"))
+            _ev_mc_d=_ev_mc.copy(); _ev_mc_d["fecha"]=_ev_mc_d["fecha"].apply(fmt_fecha)
+            st.dataframe(_ev_mc_d[["fecha","peso","imc","grasa_pct","masa_musc","agua_pct"]].rename(columns={"fecha":"Fecha","peso":"Peso kg","imc":"IMC","grasa_pct":"Grasa %","masa_musc":"Musc. %","agua_pct":"Agua %"}),use_container_width=True,hide_index=True)
+
+    with _tmc3:
+        _pg_mc=db_query("SELECT fecha,monto,concepto,tipo_plan,medio_pago FROM pagos WHERE rut=? ORDER BY fecha DESC",(_rut_mc,))
+        if _pg_mc.empty:
+            st.markdown('<div class="info-box">Sin pagos registrados.</div>',unsafe_allow_html=True)
+        else:
+            _pg_mc["fecha"]=_pg_mc["fecha"].apply(fmt_fecha)
+            _pg_mc["monto"]=_pg_mc["monto"].apply(lambda x:f"${int(x):,}")
+            st.dataframe(_pg_mc.rename(columns={"fecha":"Fecha","monto":"Monto","concepto":"Período","tipo_plan":"Plan","medio_pago":"Medio"}),use_container_width=True,hide_index=True)
+
+    with _tmc4:
+        _pn_mc=db_query("SELECT * FROM planes_nutri WHERE cliente_rut=? AND activo=1 ORDER BY id DESC LIMIT 1",(_rut_mc,))
+        if _pn_mc.empty:
+            st.markdown('<div class="info-box">Sin plan nutricional activo.</div>',unsafe_allow_html=True)
+        else:
+            _pnr_mc=_pn_mc.iloc[0].to_dict()
+            st.markdown(f'<div style="background:{GRIS2};border-radius:8px;padding:10px 14px;"><b style="color:{AZUL}">{_pnr_mc["nombre"]}</b> · 🎯 {_pnr_mc.get("objetivo","—")} · 🔥 {int(_pnr_mc.get("kcal_objetivo") or 0):,} kcal/día</div>',unsafe_allow_html=True)
+            st.markdown(f"<span style='color:{GRIS_T};font-size:.85rem'>Profesional: {_pnr_mc.get('profesional','—')}</span>",unsafe_allow_html=True)
     st.stop()
 
 hoy = date.today()
@@ -1038,31 +1230,40 @@ if st.session_state.modo == "cliente":
                     🗓 Días: <b>{dias_ent}</b> · 🎯 {rc.get("objetivo","")} · 📊 {rc.get("nivel","")}
                   </div>
                 </div>''',unsafe_allow_html=True)
-                # Mostrar rutina PDF si existe
-                rp_cli=str(rc.get("rutina_pdf_path",""))
-                if rp_cli and os.path.exists(rp_cli):
-                    with open(rp_cli,"rb") as _f: pdf_cli=_f.read()
-                    pdf_cli_b64=__import__("base64").b64encode(pdf_cli).decode()
-                    st.markdown(f'<div style="font-weight:700;color:{VERDE};margin:12px 0 6px">📄 Tu rutina de entrenamiento</div>',unsafe_allow_html=True)
-                    # Botón de descarga directo (funciona en kiosko y móvil)
-                    _cc1,_cc2=st.columns(2)
-                    _cc1.download_button("⬇️ Descargar Rutina PDF",pdf_cli,
-                        f"rutina.pdf","application/pdf",use_container_width=True,key="cli_dl_rut")
-                    # Link para abrir en nueva ventana (solo navegadores desktop que lo soportan)
-                    _cc2.markdown(f'''<a href="data:application/pdf;base64,{pdf_cli_b64}" target="_blank"
-                        style="display:block;background:{GRIS2};color:{VERDE};font-weight:700;border:1px solid {VERDE};
-                        padding:9px 16px;border-radius:9px;text-decoration:none;text-align:center;font-size:.92rem;margin-top:2px;">
-                        🔗 Ver en nueva ventana</a>''',unsafe_allow_html=True)
-                    # Visor embebido
-                    st.markdown(f'''<object data="data:application/pdf;base64,{pdf_cli_b64}"
-                        type="application/pdf" width="100%" height="500px"
-                        style="border:1px solid {GRIS3};border-radius:10px;margin-top:8px;">
-                        <p style="color:{GRIS_T}">Tu navegador no muestra PDF embebido.
-                        <a href="data:application/pdf;base64,{pdf_cli_b64}" download="rutina.pdf"
-                        style="color:{VERDE}">Descargar PDF</a></p>
-                        </object>''',unsafe_allow_html=True)
+                # Mostrar rutina vigente desde BD
+                _rut_ki=db_query("SELECT * FROM rutinas WHERE cliente_rut=? AND activa=1 ORDER BY id DESC LIMIT 1",(rc["rut"],))
+                if not _rut_ki.empty:
+                    _rutki=_rut_ki.iloc[0].to_dict()
+                    st.markdown(f"<b style='color:{VERDE};font-size:1rem'>💪 {_rutki['nombre']}</b>",unsafe_allow_html=True)
+                    _ejs_ki=db_query("""SELECT re.*,e.nombre,e.url_imagen,e.musculo_primario
+                        FROM rutina_ejercicios re JOIN ejercicios e ON e.id=re.ejercicio_id
+                        WHERE re.rutina_id=? ORDER BY re.dia_semana,re.orden""",(int(_rutki["id"]),))
+                    if not _ejs_ki.empty:
+                        _dias_ki=[d for d in ["Día 1","Día 2","Día 3","Día 4","Día 5","Día 6"] if d in _ejs_ki["dia_semana"].values]
+                        _es_fem_ki=str(rc.get("sexo","")).lower()=="femenino"
+                        _col_dia_ki="#E91E8C" if _es_fem_ki else "#3A9BD5"
+                        _hcols_ki=st.columns(len(_dias_ki))
+                        for _ic_ki,_hc_ki in enumerate(_hcols_ki):
+                            _hc_ki.markdown(f'<div style="background:{_col_dia_ki};color:#fff;text-align:center;font-weight:700;font-size:.78rem;padding:5px 2px;border-radius:6px 6px 0 0">{_dias_ki[_ic_ki]}</div>',unsafe_allow_html=True)
+                        _bcols_ki=st.columns(len(_dias_ki))
+                        for _ic2_ki,(_cb_ki,_dfl_ki) in enumerate(zip(_bcols_ki,_dias_ki)):
+                            _ddf_ki=_ejs_ki[_ejs_ki["dia_semana"]==_dfl_ki]
+                            with _cb_ki:
+                                for _ii_ki,(_,_ef_ki) in enumerate(_ddf_ki.iterrows(),1):
+                                    _efd_ki=_ef_ki.to_dict()
+                                    with st.container(border=True):
+                                        _iurl_ki=str(_efd_ki.get("url_imagen","")).strip()
+                                        if _iurl_ki and _iurl_ki!="nan":
+                                            try: st.image(_iurl_ki,use_container_width=True)
+                                            except: st.markdown('<div style="font-size:1.5rem;text-align:center">🏋️</div>',unsafe_allow_html=True)
+                                        else: st.markdown('<div style="font-size:1.5rem;text-align:center">🏋️</div>',unsafe_allow_html=True)
+                                        st.markdown(f'<div style="font-size:.72rem;font-weight:700;color:#fff;text-align:center;line-height:1.2">{_ii_ki}. {str(_efd_ki.get("nombre",""))[:22]}</div>',unsafe_allow_html=True)
+                                        _sr_ki=sv(_efd_ki,"series","—"); _rp_ki=sv(_efd_ki,"repeticiones","—")
+                                        st.markdown(f'<div style="font-size:.68rem;color:{_col_dia_ki};text-align:center">{_sr_ki}×{_rp_ki}</div>',unsafe_allow_html=True)
+                    else:
+                        st.markdown('<div class="info-box">Esta rutina aún no tiene ejercicios.</div>',unsafe_allow_html=True)
                 else:
-                    st.markdown('<div class="info-box">Sin rutina PDF cargada aún. Consulta con tu entrenador.</div>',unsafe_allow_html=True)
+                    st.markdown('<div class="info-box">Sin rutina activa. Consulta con tu entrenador.</div>',unsafe_allow_html=True)
                 # Últimas asistencias
                 ult_as=db_query("SELECT fecha,hora,tipo FROM asistencia WHERE UPPER(rut)=? ORDER BY fecha DESC,hora DESC LIMIT 10",(st.session_state.rut_cliente,))
                 if not ult_as.empty:
@@ -1284,134 +1485,310 @@ elif pagina=="👥 Clientes":
         uv      = wa_url(cel, mv)
 
         # ── Botón volver ──
+        _tabs_names=["📋 Datos","💪 Rutina","🥗 Nutrición","📏 Evaluación","💳 Pagos","📲 QR","📄 Documentos"]
         if st.button("← Volver", key="vt"): st.session_state.ver_rut=None; st.rerun()
-
-        # ── ENCABEZADO COMPACTO (foto + datos + acciones en una fila) ──
-        col_foto, col_info, col_acc = st.columns([1,3,2])  # col_borde=border, col_e=badge
-
+        col_foto, col_info, col_acc = st.columns([1,3,2])
         with col_foto:
-            fp = sv(r,"foto_path")
-            if fp and os.path.exists(fp):
-                st.image(fp, width=110)
-                # Pequeño botón cambiar foto bajo la imagen
-                fup = st.file_uploader("📷",type=["jpg","jpeg","png"],key=f"fu_{rut}",
-                    label_visibility="collapsed",help="Cambiar foto")
-            else:
-                # Sin foto → mostrar QR del cliente
-                _qr_fp=generar_qr_b64(f"PUTU|{rut}|{sv(r,'nombre')}")
-                st.markdown(f'<img src="data:image/png;base64,{_qr_fp}" style="width:110px;height:110px;border-radius:8px;border:1px solid {GRIS3}">',unsafe_allow_html=True)
-                st.markdown(f'<div style="font-size:.58rem;color:{GRIS_T};text-align:center;margin-top:2px">QR asistencia</div>',unsafe_allow_html=True)
-                fup = st.file_uploader("📷 Subir foto",type=["jpg","jpeg","png"],key=f"fu_{rut}",
-                    label_visibility="collapsed",help="Subir foto del cliente")
-            if fup:
-                fp2 = os.path.join(FOTOS_DIR,f"{rut.replace('-','_')}.{fup.name.split('.')[-1]}")
-                with open(fp2,"wb") as f2: f2.write(fup.getbuffer())
-                conn2=get_conn(); conn2.execute("UPDATE clientes SET foto_path=? WHERE rut=?",(fp2,rut)); conn2.commit(); conn2.close()
-                st.cache_data.clear(); st.rerun()
-
+                fp = sv(r,"foto_path")
+                if fp and os.path.exists(fp):
+                    st.image(fp, width=110)
+                    fup = st.file_uploader("📷",type=["jpg","jpeg","png"],key=f"fu_{rut}",
+                        label_visibility="collapsed",help="Cambiar foto")
+                else:
+                    _qr_fp=generar_qr_b64(f"PUTU|{rut}|{sv(r,'nombre')}")
+                    st.markdown(f'<img src="data:image/png;base64,{_qr_fp}" style="width:110px;height:110px;border-radius:8px;border:1px solid {GRIS3}">',unsafe_allow_html=True)
+                    st.markdown(f'<div style="font-size:.58rem;color:{GRIS_T};text-align:center;margin-top:2px">QR asistencia</div>',unsafe_allow_html=True)
+                    fup = st.file_uploader("📷 Subir foto",type=["jpg","jpeg","png"],key=f"fu_{rut}",
+                        label_visibility="collapsed",help="Subir foto del cliente")
+                if fup:
+                    fp2 = os.path.join(FOTOS_DIR,f"{rut.replace('-','_')}.{fup.name.split('.')[-1]}")
+                    with open(fp2,"wb") as f2: f2.write(fup.getbuffer())
+                    conn2=get_conn(); conn2.execute("UPDATE clientes SET foto_path=? WHERE rut=?",(fp2,rut)); conn2.commit(); conn2.close()
+                    st.cache_data.clear(); st.rerun()
         with col_info:
-            st.markdown(f'''<div style="border-left:4px solid {col_borde};padding-left:12px;">
-              <div style="font-size:1.4rem;font-weight:900;color:{VERDE};line-height:1.1">{sv(r,"nombre")}</div>
-              <div style="color:{GRIS_T};font-size:.88rem;margin-top:3px">
-                <b>{sv(r,"rut")}</b> · {sv(r,"sexo")} · {sv(r,"edad")} años · 🎂 {sv(r,"mes_cumpleanos")}
-              </div>
-              <div style="color:{GRIS_T};font-size:.85rem;margin-top:2px">
-                📍 {sv(r,"direccion")}
-              </div>
-              <div style="color:{GRIS_T};font-size:.85rem">
-                📱 {fmt_cel(cel)} · ✉️ {sv(r,"email")}
-              </div>
-              <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                <span style="background:{col_e}22;color:{col_e};border:1px solid {col_e};
-                  border-radius:20px;padding:2px 12px;font-size:.82rem;font-weight:700">{sv(r,"estado")}</span>
-                <span style="color:{GRIS_T};font-size:.82rem">💳 {sv(r,"tipo_plan")} · {sv(r,"frecuencia")} · {sv(r,"horario")} · 🔄 {sv(r,"periodo_vencimiento")}</span>
-              </div>
-              <div style="color:{GRIS_T};font-size:.82rem;margin-top:2px">
-                📅 {("🔴 VENCIDO" if dias_para_vencer(sv(r,"fecha_vencimiento")) is not None and dias_para_vencer(sv(r,"fecha_vencimiento"))<0 else "Vence")}: <b style="color:{"#E85050" if dias_para_vencer(sv(r,"fecha_vencimiento")) is not None and dias_para_vencer(sv(r,"fecha_vencimiento"))<0 else VERDE}">{fmt_fecha(sv(r,"fecha_vencimiento"))}</b> · 💵 <b>${int(float(r.get("valor_plan") or 0)):,}</b>
-              </div>
-            </div>''', unsafe_allow_html=True)
-
+                st.markdown(f'''<div style="border-left:4px solid {col_borde};padding-left:12px;">
+                  <div style="font-size:1.4rem;font-weight:900;color:{VERDE};line-height:1.1">{sv(r,"nombre")}</div>
+                  <div style="color:{GRIS_T};font-size:.88rem;margin-top:3px">
+                    <b>{sv(r,"rut")}</b> · {sv(r,"sexo")} · {sv(r,"edad")} años · 🎂 {sv(r,"mes_cumpleanos")}
+                  </div>
+                  <div style="color:{GRIS_T};font-size:.85rem;margin-top:2px">📍 {sv(r,"direccion")}</div>
+                  <div style="color:{GRIS_T};font-size:.85rem">📱 {fmt_cel(cel)} · ✉️ {sv(r,"email")}</div>
+                  <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <span style="background:{col_e}22;color:{col_e};border:1px solid {col_e};
+                      border-radius:20px;padding:2px 12px;font-size:.82rem;font-weight:700">{sv(r,"estado")}</span>
+                    <span style="color:{GRIS_T};font-size:.82rem">💳 {sv(r,"tipo_plan")} · {sv(r,"frecuencia")} · {sv(r,"horario")} · 🔄 {sv(r,"periodo_vencimiento")}</span>
+                  </div>
+                  <div style="color:{GRIS_T};font-size:.82rem;margin-top:2px">
+                    📅 {("🔴 VENCIDO" if dias_para_vencer(sv(r,"fecha_vencimiento")) is not None and dias_para_vencer(sv(r,"fecha_vencimiento"))<0 else "Vence")}: <b style="color:{"#E85050" if dias_para_vencer(sv(r,"fecha_vencimiento")) is not None and dias_para_vencer(sv(r,"fecha_vencimiento"))<0 else VERDE}">{fmt_fecha(sv(r,"fecha_vencimiento"))}</b> · 💵 <b>${int(float(r.get("valor_plan") or 0)):,}</b>
+                  </div>
+                </div>''', unsafe_allow_html=True)
         with col_acc:
-            # Acciones en 2 columnas x 3 filas (6 botones compactos)
-            a1,a2 = st.columns(2)
+                a1,a2 = st.columns(2)
+                if a1.button("💳 Pagar", key="go_pago", use_container_width=True):
+                    st.session_state.pago_rut=rut; st.session_state._goto="💳 Pagos y Renovaciones"
+                    st.session_state.ver_rut=None; st.rerun()
+                est_actual=sv(r,"estado").capitalize()
+                lbl_blk="🔓 Activar" if est_actual=="Inactivo" else "🔒 Bloquear"
+                if a2.button(lbl_blk, key="go_blk", use_container_width=True):
+                    nv="Activo" if est_actual=="Inactivo" else "Inactivo"
+                    conn2=get_conn(); conn2.execute("UPDATE clientes SET estado=?,modificado=? WHERE rut=?",(nv,datetime.now().isoformat(),rut)); conn2.commit(); conn2.close()
+                    st.cache_data.clear(); st.rerun()
+                if a1.button("🎂 WA Cumple", key="go_wac", use_container_width=True):
+                    st.markdown(f'<a href="{uc}" target="_blank">Abrir WhatsApp</a>',unsafe_allow_html=True)
+                if a2.button("⏰ WA Vence", key="go_wav", use_container_width=True):
+                    st.markdown(f'<a href="{uv}" target="_blank" style="color:{VERDE};font-weight:700;">📲 Enviar aviso vencimiento</a>',unsafe_allow_html=True)
+                if a1.button("🖨️ Imprimir", key="go_print", use_container_width=True):
+                    st.session_state["show_print_"+rut]=True
+                if st.session_state.get("show_print_"+rut):
+                    _dev_p=db_query("SELECT * FROM evaluaciones WHERE rut=? ORDER BY fecha DESC LIMIT 1",(rut,))
+                    _dpg_p=db_query("SELECT * FROM pagos WHERE rut=? ORDER BY fecha DESC LIMIT 5",(rut,))
+                    _ev_str=""
+                    if not _dev_p.empty:
+                        _ep=_dev_p.iloc[0]
+                        _ev_str=f"<tr><td>Peso</td><td>{_ep.get('peso','')} kg</td><td>IMC</td><td>{_ep.get('imc','')}</td></tr><tr><td>Grasa %</td><td>{_ep.get('grasa_pct','')}</td><td>Masa Musc.</td><td>{_ep.get('masa_musc','')}</td></tr>"
+                    _pg_str="".join([f"<tr><td>{fmt_fecha(str(pg.get('fecha','')))}</td><td>${int(float(pg.get('monto',0))):,}</td><td>{pg.get('concepto','')}</td><td>{pg.get('medio_pago','')}</td></tr>" for _,pg in _dpg_p.iterrows()]) if not _dpg_p.empty else "<tr><td colspan='4'>Sin pagos</td></tr>"
+                    _qr_b64_p=generar_qr_b64(f"PUTU|{rut}|{sv(r,'nombre')}")
+                    _html_print=f"""<!DOCTYPE html><html><head><meta charset='utf-8'><title>Ficha {sv(r,'nombre')}</title>
+                    <style>@page{{size:letter;margin:1.5cm}}body{{font-family:Arial;font-size:10pt;color:#111}}
+                    h2{{color:#6DBE45;border-bottom:2px solid #6DBE45;padding-bottom:4px}}h3{{color:#333;margin-top:14px}}
+                    table{{width:100%;border-collapse:collapse;margin:6px 0}}th{{background:#6DBE45;color:black;padding:5px 8px;text-align:left;font-size:9pt}}
+                    td{{padding:4px 8px;border-bottom:1px solid #eee;font-size:9pt}}.qr{{text-align:center;margin-top:10px}}</style></head><body>
+                    <h2>PUTÚ ACTIVO — Ficha de Cliente</h2>
+                    <h3>📋 Datos Personales</h3>
+                    <table><tr><th>Nombre</th><td><b>{sv(r,'nombre')}</b></td><th>RUT</th><td>{rut}</td></tr>
+                    <tr><th>Plan</th><td>{sv(r,'tipo_plan')}</td><th>Vencimiento</th><td>{fmt_fecha(sv(r,'fecha_vencimiento'))}</td></tr></table>
+                    <h3>📏 Última Evaluación</h3>
+                    <table><tr><th>Campo</th><th>Valor</th><th>Campo</th><th>Valor</th></tr>{_ev_str if _ev_str else "<tr><td colspan='4'>Sin evaluaciones</td></tr>"}</table>
+                    <h3>💳 Últimos Pagos</h3>
+                    <table><tr><th>Fecha</th><th>Monto</th><th>Concepto</th><th>Medio</th></tr>{_pg_str}</table>
+                    <div class='qr'><h3>📲 QR</h3><img src='data:image/png;base64,{_qr_b64_p}' width='120'></div>
+                    </body></html>"""
+                    # Generar PDF con ReportLab — diseño mejorado
+                    if REPORTLAB_OK:
+                        import urllib.request as _ur_fi, re as _re_fi
+                        from PIL import Image as _PIL_fi
+                        _pb_fi=io.BytesIO()
+                        _pd_fi=SimpleDocTemplate(_pb_fi,pagesize=A4,
+                            leftMargin=1.5*cm,rightMargin=1.5*cm,
+                            topMargin=1.2*cm,bottomMargin=1.2*cm)
+                        _AW=A4[0]-3*cm; _st_fi=[]
 
-            if a1.button("💳 Pagar", key="go_pago", use_container_width=True):
-                st.session_state.pago_rut = rut
-                st.session_state._goto    = "💳 Pagos y Renovaciones"
-                st.session_state.ver_rut  = None; st.rerun()
+                        # Color según sexo
+                        _es_fem_fi=sv(r,"sexo").lower()=="femenino"
+                        _COL=rl_colors.HexColor("#E91E8C") if _es_fem_fi else rl_colors.HexColor("#3A9BD5")
+                        _COL_LT=rl_colors.HexColor("#F5F5F5")  # gris claro neutro
 
-            est_actual = sv(r,"estado").capitalize()
-            lbl_blk = "🔓 Activar" if est_actual=="Inactivo" else "🔒 Bloquear"
-            if a2.button(lbl_blk, key="go_blk", use_container_width=True):
-                nv = "Activo" if est_actual=="Inactivo" else "Inactivo"
-                conn2=get_conn(); conn2.execute("UPDATE clientes SET estado=?,modificado=? WHERE rut=?",(nv,datetime.now().isoformat(),rut)); conn2.commit(); conn2.close()
-                st.cache_data.clear(); st.rerun()
+                        # Estilos
+                        _sT=lambda n,**k: ParagraphStyle(n,**k)
+                        _stnom=_sT("fn",fontName="Helvetica-Bold",fontSize=16,textColor=_COL,leading=20)
+                        _stsub=_sT("fs",fontName="Helvetica",fontSize=9,textColor=rl_colors.HexColor("#555"),leading=13)
+                        _stsec=_sT("fsc",fontName="Helvetica-Bold",fontSize=10,textColor=rl_colors.HexColor("#6DBE45"),leading=14)
+                        _stdat=_sT("fd",fontName="Helvetica",fontSize=9,textColor=rl_colors.HexColor("#222"),leading=12)
+                        _stfoot=_sT("ff",fontName="Helvetica-Oblique",fontSize=7.5,textColor=rl_colors.HexColor("#888"),alignment=TA_CENTER)
+                        _stlogo=_sT("fl",fontName="Helvetica-Bold",fontSize=13,textColor=rl_colors.HexColor("#6DBE45"))
+                        _stgen=_sT("fg",fontName="Helvetica-Bold",fontSize=9,textColor=rl_colors.white,alignment=TA_CENTER)
 
-            if a1.button("🎂 WA Cumple", key="go_wac", use_container_width=True):
-                st.markdown(f'<meta http-equiv="refresh" content="0;url={uc}">',unsafe_allow_html=True)
-                st.markdown(f'<a href="{uc}" target="_blank">Abrir WhatsApp</a>',unsafe_allow_html=True)
-            if a2.button("⏰ WA Vence", key="go_wav", use_container_width=True):
-                st.markdown(f'<a href="{uv}" target="_blank" style="color:{VERDE};font-weight:700;">📲 Enviar aviso vencimiento</a>',unsafe_allow_html=True)
+                        # ── ENCABEZADO: Logo + título + QR ──────────────────
+                        _logo_fi=None
+                        try:
+                            # Preferir logo con fondo negro si existe
+                            _lp_fi_neg=os.path.join(BASE_DIR,"LOGO_PUTÚ_ACTIVO_Fondo_negro.jpg")
+                            _lp_fi=_lp_fi_neg if os.path.exists(_lp_fi_neg) else os.path.join(BASE_DIR,"logo.png")
+                            if os.path.exists(_lp_fi):
+                                _im_fi=_PIL_fi.open(_lp_fi); _iw_fi,_ih_fi=_im_fi.size
+                                _ratio_fi=1.6*cm/_ih_fi
+                                _logo_fi=RLImage(_lp_fi,width=_iw_fi*_ratio_fi,height=1.6*cm)
+                        except: pass
 
-            if a1.button("🖨️ Imprimir", key="go_print", use_container_width=True):
-                st.session_state["show_print_"+rut]=True
-            if st.session_state.get("show_print_"+rut):
-                _dev_p=db_query("SELECT * FROM evaluaciones WHERE rut=? ORDER BY fecha DESC LIMIT 1",(rut,))
-                _dpg_p=db_query("SELECT * FROM pagos WHERE rut=? ORDER BY fecha DESC LIMIT 5",(rut,))
-                _ev_str=""
-                if not _dev_p.empty:
-                    _ep=_dev_p.iloc[0]
-                    _ev_str=f"<tr><td>Peso</td><td>{_ep.get('peso','')} kg</td><td>IMC</td><td>{_ep.get('imc','')}</td></tr><tr><td>Grasa %</td><td>{_ep.get('grasa_pct','')}</td><td>Masa Musc.</td><td>{_ep.get('masa_musc','')}</td></tr>"
-                _pg_str="".join([f"<tr><td>{fmt_fecha(str(pg.get('fecha','')))}</td><td>${int(float(pg.get('monto',0))):,}</td><td>{pg.get('concepto','')}</td><td>{pg.get('medio_pago','')}</td></tr>" for _,pg in _dpg_p.iterrows()]) if not _dpg_p.empty else "<tr><td colspan='4'>Sin pagos</td></tr>"
-                _qr_b64_p=generar_qr_b64(f"PUTU|{rut}|{sv(r,'nombre')}")
-                _html_print=f"""<!DOCTYPE html><html><head><meta charset='utf-8'><title>Ficha {sv(r,'nombre')}</title>
-                <style>@page{{size:letter;margin:1.5cm}}body{{font-family:Arial;font-size:10pt;color:#111}}
-                h2{{color:#6DBE45;border-bottom:2px solid #6DBE45;padding-bottom:4px}}h3{{color:#333;margin-top:14px}}
-                table{{width:100%;border-collapse:collapse;margin:6px 0}}th{{background:#6DBE45;color:black;padding:5px 8px;text-align:left;font-size:9pt}}
-                td{{padding:4px 8px;border-bottom:1px solid #eee;font-size:9pt}}.qr{{text-align:center;margin-top:10px}}
-                @media print{{.no-print{{display:none}}}}</style></head><body>
-                <div class='no-print' style='margin:10px 0'>
-                <button onclick='window.print()' style='background:#6DBE45;color:black;font-weight:700;padding:8px 20px;border:none;border-radius:6px;cursor:pointer'>🖨️ Imprimir / Guardar PDF</button>
-                <button onclick='window.close()' style='margin-left:8px;padding:8px 16px;border:none;border-radius:6px;cursor:pointer'>✕ Cerrar</button></div>
-                <h2>PUTÚ ACTIVO — Ficha de Cliente</h2>
-                <h3>📋 Datos Personales</h3>
-                <table><tr><th>Nombre</th><td><b>{sv(r,'nombre')}</b></td><th>RUT</th><td>{rut}</td></tr>
-                <tr><th>Sexo</th><td>{sv(r,'sexo')}</td><th>Edad</th><td>{sv(r,'edad')} años</td></tr>
-                <tr><th>Plan</th><td>{sv(r,'tipo_plan')}</td><th>Frecuencia</th><td>{sv(r,'frecuencia')}</td></tr>
-                <tr><th>Estado</th><td>{sv(r,'estado')}</td><th>Vencimiento</th><td>{fmt_fecha(sv(r,'fecha_vencimiento'))}</td></tr>
-                <tr><th>Celular</th><td>{fmt_cel(sv(r,'celular'))}</td><th>Email</th><td>{sv(r,'email')}</td></tr>
-                <tr><th>Inscripción</th><td>{fmt_fecha(sv(r,'fecha_inscripcion'))}</td><th>Horario</th><td>{sv(r,'horario')}</td></tr>
-                <tr><th>Objetivo</th><td>{sv(r,'objetivo')}</td><th>Nivel</th><td>{sv(r,'nivel')}</td></tr></table>
-                <h3>📏 Última Evaluación</h3>
-                <table><tr><th>Campo</th><th>Valor</th><th>Campo</th><th>Valor</th></tr>{_ev_str if _ev_str else "<tr><td colspan='4'>Sin evaluaciones registradas</td></tr>"}</table>
-                <h3>💳 Últimos Pagos</h3>
-                <table><tr><th>Fecha</th><th>Monto</th><th>Concepto</th><th>Medio</th></tr>{_pg_str}</table>
-                <div class='qr'><h3>📲 QR de Asistencia</h3>
-                <img src='data:image/png;base64,{_qr_b64_p}' width='120'><br><small>{rut}</small></div>
-                <p style='margin-top:20px;font-size:8pt;color:#888;text-align:center'>Putú Activo — Centro de Entrenamiento · {hoy.strftime('%d/%m/%Y')}</p>
-                </body></html>"""
-                st.download_button("⬇️ Descargar ficha (abrir en navegador e imprimir)",
-                    _html_print.encode("utf-8"),
-                    f"ficha_{rut}.html","text/html",
-                    key=f"dl_print_{rut}",use_container_width=True)
-                st.caption("💡 Descarga el archivo, ábrelo en el navegador y usa Ctrl+P para imprimir o guardar como PDF")
-                st.session_state.pop("show_print_"+rut,None)
+                        _qr_fi_b64=generar_qr_b64(f"PUTU|{rut}|{sv(r,'nombre')}")
+                        _qr_fi_img=None
+                        try:
+                            _qr_fi_bytes=__import__("base64").b64decode(_qr_fi_b64)
+                            _qr_fi_img=RLImage(io.BytesIO(_qr_fi_bytes),width=1.8*cm,height=1.8*cm)
+                        except: pass
 
+                        _hdr_left=[_logo_fi or Paragraph("PUTÚ ACTIVO",_stlogo),
+                            Spacer(1,0.1*cm),
+                            Paragraph("PUTÚ ACTIVO — Ficha de Cliente",_stlogo),
+                            Paragraph(f"Generado: {fmt_fecha(str(hoy))}",_stsub)]
+                        _hdr_tbl=Table([[_hdr_left,_qr_fi_img or ""]],
+                            colWidths=[_AW-2.2*cm,2.2*cm])
+                        _hdr_tbl.setStyle(TableStyle([
+                            ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+                            ("ALIGN",(1,0),(1,0),"RIGHT"),
+                            ("LEFTPADDING",(0,0),(-1,-1),0),
+                            ("RIGHTPADDING",(0,0),(-1,-1),0),
+                            ("TOPPADDING",(0,0),(-1,-1),0),
+                            ("BOTTOMPADDING",(0,0),(-1,-1),0),
+                        ]))
+                        _st_fi.append(_hdr_tbl)
+                        # Barra de color
+                        _bar_tbl=Table([[""]],colWidths=[_AW])
+                        _bar_tbl.setStyle(TableStyle([
+                            ("BACKGROUND",(0,0),(-1,-1),rl_colors.HexColor("#6DBE45")),
+                            ("TOPPADDING",(0,0),(-1,-1),3),
+                            ("BOTTOMPADDING",(0,0),(-1,-1),3),
+                        ]))
+                        _st_fi.append(Spacer(1,0.2*cm))
+                        _st_fi.append(_bar_tbl)
+                        _st_fi.append(Spacer(1,0.3*cm))
 
+                        # ── SECCIÓN PERFIL: Foto + Datos personales + Membresía ──
+                        # Foto o avatar
+                        _foto_fi=None
+                        _fp_fi=sv(r,"foto_path")
+                        try:
+                            if _fp_fi and os.path.exists(_fp_fi):
+                                _im2=_PIL_fi.open(_fp_fi); _iw2,_ih2=_im2.size
+                                _r2=min(3.5*cm/_iw2,3.5*cm/_ih2)
+                                _foto_fi=RLImage(_fp_fi,width=_iw2*_r2,height=_ih2*_r2)
+                        except: pass
+
+                        if not _foto_fi:
+                            # Avatar con inicial
+                            _ini=sv(r,"nombre")[:1].upper() or "?"
+                            _av_buf=io.BytesIO()
+                            try:
+                                from PIL import Image as _PILAV, ImageDraw as _IDAD, ImageFont as _IFT
+                                _av=_PILAV.new("RGB",(140,140),color=(30,30,30))
+                                _avd=_IDAD.Draw(_av)
+                                _avd.ellipse([5,5,135,135],fill=(_COL.red*255,_COL.green*255,_COL.blue*255) if hasattr(_COL,"red") else (58,155,213))
+                                _avd.text((70,70),_ini,fill="white",anchor="mm")
+                                _av.save(_av_buf,"PNG")
+                                _av_buf.seek(0)
+                                _foto_fi=RLImage(_av_buf,width=3.5*cm,height=3.5*cm)
+                            except: pass
+
+                        # Datos personales col derecha
+                        _dat_pers=[
+                            Paragraph(f"<b>{sv(r,'nombre')}</b>",_stnom),
+                            Spacer(1,0.1*cm),
+                            Paragraph(f"RUT: <b>{rut}</b> &nbsp;·&nbsp; {sv(r,'sexo')} &nbsp;·&nbsp; {sv(r,'edad')} años &nbsp;·&nbsp; 🎂 {sv(r,'mes_cumpleanos')}",_stdat),
+                            Paragraph(f"📍 {sv(r,'direccion')}",_stdat),
+                            Paragraph(f"📱 {fmt_cel(sv(r,'celular'))} &nbsp;·&nbsp; ✉️ {sv(r,'email')}",_stdat),
+                        ]
+                        # Línea divisora membresía
+                        _memb_bar=Table([[""]],colWidths=[_AW-4.2*cm])
+                        _memb_bar.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),rl_colors.HexColor("#DDDDDD")),("TOPPADDING",(0,0),(-1,-1),1),("BOTTOMPADDING",(0,0),(-1,-1),1)]))
+                        _dat_pers.append(Spacer(1,0.15*cm))
+                        _dat_pers.append(_memb_bar)
+                        _dat_pers.append(Spacer(1,0.1*cm))
+                        _dat_pers.append(Paragraph(f"💳 <b>{sv(r,'tipo_plan')}</b> &nbsp;·&nbsp; {sv(r,'frecuencia')} &nbsp;·&nbsp; {sv(r,'horario')}",_stdat))
+                        _venc_color="#E85050" if (dias_para_vencer(sv(r,'fecha_vencimiento')) or 1)<0 else "#222"
+                        _dat_pers.append(Paragraph(f"Estado: <b>{sv(r,'estado')}</b> &nbsp;·&nbsp; Vence: <b>{fmt_fecha(sv(r,'fecha_vencimiento'))}</b> &nbsp;·&nbsp; ${int(float(sv(r,'valor_plan') or 0)):,}",_stdat))
+                        _dat_pers.append(Paragraph(f"🎯 {sv(r,'objetivo')} &nbsp;·&nbsp; 📊 {sv(r,'nivel')}",_stdat))
+
+                        _perfil_tbl=Table([[_foto_fi or "",_dat_pers]],
+                            colWidths=[3.8*cm,_AW-3.8*cm])
+                        _perfil_tbl.setStyle(TableStyle([
+                            ("VALIGN",(0,0),(-1,-1),"TOP"),
+                            ("ALIGN",(0,0),(0,0),"CENTER"),
+                            ("LEFTPADDING",(0,0),(-1,-1),0),
+                            ("RIGHTPADDING",(0,0),(-1,-1),0),
+                            ("TOPPADDING",(0,0),(-1,-1),0),
+                            ("BOTTOMPADDING",(0,0),(-1,-1),0),
+                            ("LINEBEFORE",(1,0),(1,0),2,rl_colors.HexColor("#6DBE45")),
+                            ("LEFTPADDING",(1,0),(1,0),10),
+                        ]))
+                        _st_fi.append(_perfil_tbl)
+                        _st_fi.append(Spacer(1,0.35*cm))
+
+                        # ── EVALUACIÓN ───────────────────────────────────────
+                        if not _dev_p.empty:
+                            _ep=_dev_p.iloc[0]
+                            _st_fi.append(Paragraph("📏 ÚLTIMA EVALUACIÓN",_stsec))
+                            _st_fi.append(Spacer(1,0.1*cm))
+                            _ev_hdr=[Paragraph(h,_stgen) for h in ["Peso","IMC","Grasa %","Musc. %","Agua %","Fecha"]]
+                            _ev_vals=[Paragraph(str(x),_stdat) for x in [
+                                f"{_ep.get('peso','')} kg",str(_ep.get('imc','')),
+                                f"{_ep.get('grasa_pct','')}%",f"{_ep.get('masa_musc','')}%",
+                                f"{_ep.get('agua_pct','')}%",fmt_fecha(str(_ep.get('fecha','')[:10]))]]
+                            _tev=Table([_ev_hdr,_ev_vals],colWidths=[_AW/6]*6)
+                            _tev.setStyle(TableStyle([
+                                ("BACKGROUND",(0,0),(-1,0),rl_colors.HexColor("#1A1A1A")),
+                                ("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5),
+                                ("ROWBACKGROUNDS",(0,1),(-1,-1),[rl_colors.HexColor("#F5F5F5")]),
+                                ("GRID",(0,0),(-1,-1),0.3,rl_colors.HexColor("#DDD")),
+                                ("ALIGN",(0,0),(-1,-1),"CENTER"),
+                                ("LEFTPADDING",(0,0),(-1,-1),4),
+                            ]))
+                            _st_fi.append(_tev)
+                            _st_fi.append(Spacer(1,0.3*cm))
+
+                            # Gráfico evolución de peso — barras horizontales
+                            _ev_hist=db_query("SELECT fecha,peso FROM evaluaciones WHERE rut=? AND peso IS NOT NULL ORDER BY fecha DESC LIMIT 6",(rut,))
+                            if not _ev_hist.empty and len(_ev_hist)>1:
+                                _st_fi.append(Paragraph("📈 EVOLUCIÓN DE PESO",_stsec))
+                                _st_fi.append(Spacer(1,0.1*cm))
+                                _ev_rev=_ev_hist.iloc[::-1].reset_index(drop=True)
+                                _w_max=float(_ev_rev["peso"].max() or 1)
+                                _w_min=float(_ev_rev["peso"].min() or 0)
+                                _bar_aw=_AW-3.5*cm
+                                _chart_rows=[]
+                                for _,_evr in _ev_rev.iterrows():
+                                    _wv=float(_evr.get("peso",0) or 0)
+                                    _blen=max(0.3*cm,(_wv-_w_min+1)/(_w_max-_w_min+1)*_bar_aw)
+                                    _bar=Table([[""]],colWidths=[_blen])
+                                    _bar.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),rl_colors.HexColor("#6DBE45")),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)]))
+                                    _fecha_lbl=str(_evr.get("fecha",""))[:7]
+                                    _chart_rows.append([
+                                        Paragraph(_fecha_lbl,_stdat),
+                                        _bar,
+                                        Paragraph(f"<b>{_wv} kg</b>",_stdat)
+                                    ])
+                                _tchart=Table(_chart_rows,colWidths=[2.2*cm,_bar_aw,1.2*cm])
+                                _tchart.setStyle(TableStyle([
+                                    ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+                                    ("LEFTPADDING",(0,0),(-1,-1),2),
+                                    ("RIGHTPADDING",(0,0),(-1,-1),2),
+                                    ("TOPPADDING",(0,0),(-1,-1),3),
+                                    ("BOTTOMPADDING",(0,0),(-1,-1),3),
+                                    ("ROWBACKGROUNDS",(0,0),(-1,-1),[rl_colors.white,rl_colors.HexColor("#F5F5F5")]),
+                                ]))
+                                _st_fi.append(_tchart)
+                                _st_fi.append(Spacer(1,0.3*cm))
+
+                        # ── PAGOS ─────────────────────────────────────────────
+                        if not _dpg_p.empty:
+                            _st_fi.append(Paragraph("💳 ÚLTIMOS PAGOS",_stsec))
+                            _st_fi.append(Spacer(1,0.1*cm))
+                            _pg_hdr=[[Paragraph(h,_stgen) for h in ["Fecha","Monto","Período","Medio"]]]
+                            _pg_rows=[[Paragraph(fmt_fecha(str(pg.get('fecha',''))),_stdat),
+                                Paragraph(f"${int(float(pg.get('monto',0))):,}",_stdat),
+                                Paragraph(str(pg.get('concepto','')),_stdat),
+                                Paragraph(str(pg.get('medio_pago','')),_stdat)] for _,pg in _dpg_p.iterrows()]
+                            _tpg=Table(_pg_hdr+_pg_rows,colWidths=[_AW*0.2,_AW*0.2,_AW*0.35,_AW*0.25])
+                            _tpg.setStyle(TableStyle([
+                                ("BACKGROUND",(0,0),(-1,0),rl_colors.HexColor("#1A1A1A")),
+                                ("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5),
+                                ("ROWBACKGROUNDS",(0,1),(-1,-1),[rl_colors.white,rl_colors.HexColor("#F5F5F5")]),
+                                ("GRID",(0,0),(-1,-1),0.3,rl_colors.HexColor("#DDD")),
+                                ("LEFTPADDING",(0,0),(-1,-1),6),
+                            ]))
+                            _st_fi.append(_tpg)
+                            _st_fi.append(Spacer(1,0.4*cm))
+
+                        _st_fi.append(Paragraph(f"Putú Activo — Centro de Entrenamiento · {hoy.strftime('%d/%m/%Y')}",_stfoot))
+                        _pd_fi.build(_st_fi)
+                        _pdf_fi=_pb_fi.getvalue()
+                        st.download_button("⬇️ Descargar ficha PDF",_pdf_fi,f"ficha_{rut}.pdf","application/pdf",key=f"dl_print_{rut}",use_container_width=True)
+                    st.session_state.pop("show_print_"+rut,None)
         st.markdown("---")
-        # Visor PDF — primero intenta PDF subido, luego genera desde rutina en BD
-
-
         # ── TABS DE FICHA ──
-        st.markdown('<style>.stTabs{margin-top:-1rem}[data-testid="stFileUploaderDropzoneInstructions"]{display:none!important}.stFileUploaderDropzone small{display:none!important}section[data-testid="stFileUploaderDropzone"] small{display:none!important}.stTabs [data-baseweb="tab-list"]{gap:2px}.stTabs [data-baseweb="tab"]{padding:6px 10px;font-size:.82rem}</style>',unsafe_allow_html=True)
-        tab_datos,tab_rut,tab_nutr,tab_eval,tab_pagos,tab_qr,tab_doc=st.tabs([
-            "📋 Datos","💪 Rutina","🥗 Nutrición","📏 Evaluación","💳 Pagos","📲 QR","📄 Documentos"])
+        st.markdown('<style>.stTabs{margin-top:-0.5rem}[data-testid="stFileUploaderDropzoneInstructions"]{display:none!important}.stFileUploaderDropzone small{display:none!important}section[data-testid="stFileUploaderDropzone"] small{display:none!important}.stTabs [data-baseweb="tab-list"]{gap:2px}.stTabs [data-baseweb="tab"]{padding:6px 10px;font-size:.82rem}</style>',unsafe_allow_html=True)
+        tab_datos,tab_rut,tab_nutr,tab_eval,tab_pagos,tab_qr,tab_doc=st.tabs(_tabs_names)
+
 
         # ── TAB DATOS ──
         with tab_datos:
-            # Vista rápida de datos actuales
-            _d1,_d2=st.columns(2)
-            _d1.markdown(f"""<div style='background:{GRIS2};border-radius:9px;padding:12px 16px;font-size:.88rem'>
+            # Vista rápida de datos actuales — 3 columnas
+            import random, string
+            def _gen_pass(n=8):
+                chars=string.ascii_letters+string.digits
+                return ''.join(random.choices(chars,k=n))
+
+            _d1,_d2,_d3=st.columns(3)
+            _d1.markdown(f"""<div style='background:{GRIS2};border-radius:9px;padding:12px 16px;font-size:.88rem;height:100%'>
                 <b style='color:{VERDE}'>Datos personales</b><br>
                 <b>Nombre:</b> {sv(r,"nombre")}<br>
                 <b>RUT:</b> {rut}<br>
@@ -1420,7 +1797,7 @@ elif pagina=="👥 Clientes":
                 <b>Email:</b> {sv(r,"email")}<br>
                 <b>Dirección:</b> {sv(r,"direccion")}
             </div>""",unsafe_allow_html=True)
-            _d2.markdown(f"""<div style='background:{GRIS2};border-radius:9px;padding:12px 16px;font-size:.88rem'>
+            _d2.markdown(f"""<div style='background:{GRIS2};border-radius:9px;padding:12px 16px;font-size:.88rem;height:100%'>
                 <b style='color:{VERDE}'>Membresía</b><br>
                 <b>Plan:</b> {sv(r,"tipo_plan")} · {sv(r,"frecuencia")}<br>
                 <b>Valor:</b> ${int(float(sv(r,"valor_plan") or 0)):,}<br>
@@ -1429,6 +1806,54 @@ elif pagina=="👥 Clientes":
                 <b>Vencimiento:</b> {fmt_fecha(sv(r,"fecha_vencimiento"))}<br>
                 <b>Objetivo:</b> {sv(r,"objetivo")} · <b>Nivel:</b> {sv(r,"nivel")}
             </div>""",unsafe_allow_html=True)
+            with _d3:
+                _uc_row=get_conn().execute("SELECT email,activo FROM usuarios_clientes WHERE rut=?",(rut,)).fetchone()
+                _email_cli=sv(r,"email")
+                st.markdown(f"<div style='background:{GRIS2};border-radius:9px;padding:12px 16px;font-size:.88rem'>",unsafe_allow_html=True)
+                st.markdown(f"<b style='color:{AZUL}'>🔑 Acceso Mi Cuenta</b>",unsafe_allow_html=True)
+                if _uc_row:
+                    _uc_estado="✅ Activo" if _uc_row[1] else "🔴 Inactivo"
+                    st.markdown(f"<span style='font-size:.82rem'>✉️ {_uc_row[0]}<br>{_uc_estado}</span>",unsafe_allow_html=True)
+                    _ucc1,_ucc2=st.columns(2)
+                    if _ucc1.button("🔄 Reset clave",key=f"uc_reset_{rut}",use_container_width=True):
+                        st.session_state[f"uc_show_{rut}"]=True
+                    if _ucc2.button("🚫 Desactivar" if _uc_row[1] else "✅ Activar",key=f"uc_toggle_{rut}",use_container_width=True):
+                        _cnuc=get_conn()
+                        _cnuc.execute("UPDATE usuarios_clientes SET activo=? WHERE rut=?",(0 if _uc_row[1] else 1,rut))
+                        _cnuc.commit(); _cnuc.close(); db_query.clear(); st.rerun()
+                else:
+                    st.markdown(f"<span style='font-size:.82rem;color:{GRIS_T}'>Sin acceso creado</span>",unsafe_allow_html=True)
+                    if st.button("🔑 Crear acceso",key=f"uc_crear_{rut}",use_container_width=True):
+                        # Generar clave automática y guardar
+                        _auto_pass=_gen_pass()
+                        _cnuc3=get_conn()
+                        _cnuc3.execute("""INSERT INTO usuarios_clientes (rut,email,password_hash,activo)
+                            VALUES (?,?,?,1) ON CONFLICT(rut) DO UPDATE SET email=?,password_hash=?,activo=1""",
+                            (rut,_email_cli.strip().lower(),_h(_auto_pass),_email_cli.strip().lower(),_h(_auto_pass)))
+                        _cnuc3.commit(); _cnuc3.close(); db_query.clear()
+                        st.session_state[f"uc_pass_gen_{rut}"]=_auto_pass
+                        st.rerun()
+                # Mostrar clave generada si existe
+                if st.session_state.get(f"uc_pass_gen_{rut}"):
+                    _pg=st.session_state[f"uc_pass_gen_{rut}"]
+                    st.markdown(f"""<div style='background:#1A2F1A;border:1px solid {VERDE};border-radius:7px;padding:8px;margin-top:6px;font-size:.82rem'>
+                        ✅ Acceso creado<br>
+                        ✉️ <b>{_email_cli}</b><br>
+                        🔑 Clave: <b style='color:{VERDE};font-size:1rem'>{_pg}</b><br>
+                        <span style='color:{GRIS_T};font-size:.72rem'>Comunícala al cliente</span>
+                    </div>""",unsafe_allow_html=True)
+                    if st.button("✓ Entendido",key=f"uc_ok_{rut}",use_container_width=True):
+                        st.session_state.pop(f"uc_pass_gen_{rut}",None); st.rerun()
+                # Reset clave — también automático
+                if st.session_state.get(f"uc_show_{rut}"):
+                    _new_pass=_gen_pass()
+                    _cnuc4=get_conn()
+                    _cnuc4.execute("UPDATE usuarios_clientes SET password_hash=? WHERE rut=?",(_h(_new_pass),rut))
+                    _cnuc4.commit(); _cnuc4.close(); db_query.clear()
+                    st.session_state.pop(f"uc_show_{rut}",None)
+                    st.session_state[f"uc_pass_gen_{rut}"]=_new_pass
+                    st.rerun()
+                st.markdown("</div>",unsafe_allow_html=True)
             st.markdown("")
             with st.expander("✏️ Editar datos del cliente",expanded=False):
              with st.form("edit_ficha"):
@@ -2348,7 +2773,30 @@ elif pagina=="👥 Clientes":
 <td style="border:none;border-top:1px solid #333;width:45%;text-align:center;padding-top:6px">Putú Activo — {fhs2}</td>
 </tr></table></body></html>"""
                 _dc1c,_dc2c=st.columns(2)
-                _dc1c.download_button("⬇️ Descargar Contrato",html_c.encode(),"contrato.html","text/html",use_container_width=True)
+                # Contrato PDF
+                if REPORTLAB_OK:
+                    _pb_ct=io.BytesIO()
+                    _pd_ct=SimpleDocTemplate(_pb_ct,pagesize=A4,leftMargin=1.5*cm,rightMargin=1.5*cm,topMargin=1.5*cm,bottomMargin=1.5*cm)
+                    _aw_ct=A4[0]-3*cm; _st_ct=[]
+                    _sHc=ParagraphStyle("cH",fontName="Helvetica-Bold",fontSize=14,textColor=rl_colors.HexColor("#6DBE45"),spaceAfter=4,alignment=TA_CENTER)
+                    _sSc=ParagraphStyle("cS",fontName="Helvetica-Bold",fontSize=10,textColor=rl_colors.black,spaceBefore=8,spaceAfter=3)
+                    _sNc=ParagraphStyle("cN",fontName="Helvetica",fontSize=9,textColor=rl_colors.black,leading=13)
+                    _st_ct.append(Paragraph("CENTRO DE ENTRENAMIENTO - PUTÚ ACTIVO",_sHc))
+                    _st_ct.append(Paragraph("CONTRATO DE PRESTACIÓN DE SERVICIOS",ParagraphStyle("cS2",fontName="Helvetica-Bold",fontSize=11,textColor=rl_colors.black,alignment=TA_CENTER,spaceAfter=8)))
+                    _st_ct.append(Paragraph(f"En Putú, a <b>{fhs2}</b>, entre <b>Putú Activo</b> y <b>{sv(r,'nombre')}</b>, RUT <b>{rut}</b>.",_sNc))
+                    _ct_data=[["Plan",sv(r,"tipo_plan"),"Frecuencia",sv(r,"frecuencia")],["Valor",f"${int(float(sv(r,'valor_plan') or 0)):,}","Horario",sv(r,"horario")],["Inicio",fmt_fecha(sv(r,"fecha_inscripcion")),"Vencimiento",fmt_fecha(sv(r,"fecha_vencimiento"))]]
+                    _tct=Table(_ct_data,colWidths=[_aw_ct*0.18,_aw_ct*0.32,_aw_ct*0.18,_aw_ct*0.32])
+                    _tct.setStyle(TableStyle([("FONTNAME",(0,0),(-1,-1),"Helvetica"),("FONTSIZE",(0,0),(-1,-1),9),("ROWBACKGROUNDS",(0,0),(-1,-1),[rl_colors.HexColor("#F0F0F0"),rl_colors.white]),("GRID",(0,0),(-1,-1),0.3,rl_colors.HexColor("#CCC")),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),("LEFTPADDING",(0,0),(-1,-1),6)]))
+                    _st_ct.append(Spacer(1,0.2*cm)); _st_ct.append(_tct); _st_ct.append(Spacer(1,0.3*cm))
+                    for _cp in [f"<b>1.</b> El Centro proveerá servicios de entrenamiento según plan contratado.",f"<b>2.</b> El cliente asistirá en horarios pactados y respetará normas de convivencia.",f"<b>3. Salud:</b> Condición médica: <b>{sv(r,'enfermedad') or 'Sin antecedentes'}</b>. Restricciones: <b>{sv(r,'restricciones') or 'Ninguna'}</b>.",f"<b>4.</b> Vigencia hasta vencimiento. Datos tratados según Ley N°19.628."]:
+                        _st_ct.append(Paragraph(_cp,_sNc))
+                    _st_ct.append(Spacer(1,1*cm))
+                    _firm=[["Firma Cliente","","Firma Representante"],[sv(r,"nombre"),"",f"Putú Activo — {fhs2}"]]
+                    _tf2=Table(_firm,colWidths=[_aw_ct*0.45,_aw_ct*0.1,_aw_ct*0.45])
+                    _tf2.setStyle(TableStyle([("FONTNAME",(0,0),(-1,-1),"Helvetica"),("FONTSIZE",(0,0),(-1,-1),9),("LINEABOVE",(0,0),(0,0),0.5,rl_colors.black),("LINEABOVE",(2,0),(2,0),0.5,rl_colors.black),("TOPPADDING",(0,0),(-1,-1),6),("LEFTPADDING",(0,0),(-1,-1),0)]))
+                    _st_ct.append(_tf2)
+                    _pd_ct.build(_st_ct)
+                    _dc1c.download_button("⬇️ Descargar Contrato PDF",_pb_ct.getvalue(),"contrato.pdf","application/pdf",use_container_width=True)
                 if _dc2c.button("🖨️ Imprimir Contrato",key="prt_cont",use_container_width=True):
                     st.markdown("<script>setTimeout(function(){ window.print(); }, 300);</script>",unsafe_allow_html=True)
             with _sub_tab2:
@@ -2431,9 +2879,9 @@ elif pagina=="👥 Clientes":
                         st.cache_data.clear(); st.session_state.pop(f"confirm_del_{row['rut']}",None); st.rerun()
                     if cd2.button("❌ Cancelar",key=f"no_{row['rut']}"):
                         st.session_state.pop(f"confirm_del_{row['rut']}",None); st.rerun()
-            st.markdown("---")
-            xls=exportar_todo_excel()
-            st.download_button("⬇️ Exportar base completa Excel",xls,"putu_activo_completo.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.markdown("---")
+        xls=exportar_todo_excel()
+        st.download_button("⬇️ Exportar base completa Excel",xls,"putu_activo_completo.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
         # ════ NUEVO CLIENTE (tab dentro de Clientes) ════
         with tab_nuevo:
@@ -2972,10 +3420,20 @@ elif pagina=="🏃 Clases & Talleres":
                 </table>
                 <div class='footer'>Putú Activo — Centro de Entrenamiento · Constitución</div>
                 </body></html>"""
-                st.download_button("🖨️ Descargar → Abrir en navegador e imprimir como PDF",
-                    html_cls.encode("utf-8"),
-                    f"clases_{hoy}.html","text/html",
-                    use_container_width=True,key="cls_dl_html")
+                if REPORTLAB_OK:
+                    _pb_cl=io.BytesIO()
+                    _pd_cl=SimpleDocTemplate(_pb_cl,pagesize=A4,leftMargin=1.5*cm,rightMargin=1.5*cm,topMargin=1.5*cm,bottomMargin=1.5*cm)
+                    _aw_cl=A4[0]-3*cm; _st_cl=[]
+                    _st_cl.append(Paragraph(f"PUTÚ ACTIVO — {titulo_rep}",ParagraphStyle("clH",fontName="Helvetica-Bold",fontSize=13,textColor=rl_colors.HexColor("#6DBE45"),spaceAfter=4)))
+                    _st_cl.append(Paragraph(f"Generado: {hoy.strftime('%d/%m/%Y')} | Registros: {len(dc_f)}",ParagraphStyle("clS",fontName="Helvetica",fontSize=9,textColor=rl_colors.HexColor("#888"),spaceAfter=8)))
+                    _cl_hdr=[["Fecha","Hora","Tipo","Título","Participante","Monto"]]
+                    _cl_rows=[[fmt_fecha(str(ro.get("fecha",""))),str(ro.get("hora","")),str(ro.get("tipo","")),str(ro.get("titulo",""))[:30],str(ro.get("nombre",""))[:25],f"${int(float(ro.get('monto',0))):,}"] for _,ro in dc_f.iterrows()]
+                    _cl_rows.append(["","","","","TOTAL",f"${total_f:,}"])
+                    _tcl=Table(_cl_hdr+_cl_rows,colWidths=[_aw_cl*0.13,_aw_cl*0.1,_aw_cl*0.12,_aw_cl*0.25,_aw_cl*0.25,_aw_cl*0.15])
+                    _tcl.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),rl_colors.HexColor("#6DBE45")),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),8),("ROWBACKGROUNDS",(0,1),(-1,-2),[rl_colors.white,rl_colors.HexColor("#F5F5F5")]),("BACKGROUND",(0,-1),(-1,-1),rl_colors.HexColor("#1A1A1A")),("TEXTCOLOR",(0,-1),(-1,-1),rl_colors.white),("FONTNAME",(0,-1),(-1,-1),"Helvetica-Bold"),("GRID",(0,0),(-1,-1),0.3,rl_colors.HexColor("#DDD")),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),("LEFTPADDING",(0,0),(-1,-1),5)]))
+                    _st_cl.append(_tcl)
+                    _pd_cl.build(_st_cl)
+                    st.download_button("⬇️ Descargar PDF clases",_pb_cl.getvalue(),f"clases_{hoy}.pdf","application/pdf",use_container_width=True,key="cls_dl_pdf")
         else: st.markdown('<div class="info-box">Sin registros.</div>',unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -3044,8 +3502,19 @@ elif pagina=="🛍 Venta Productos":
             {pdf_rows}
             <tr style='background:#eee'><td colspan='2'><b>TOTAL</b></td><td style='text-align:right'><b>${int(dvp['monto'].sum()):,}</b></td><td></td></tr>
             </table></body></html>"""
-            st.download_button("🖨️ Descargar → Abrir e imprimir como PDF",html_vp.encode(),
-                f"ventas_{fm_vp}.html","text/html",use_container_width=True)
+            if REPORTLAB_OK:
+                _pb_vp=io.BytesIO()
+                _pd_vp=SimpleDocTemplate(_pb_vp,pagesize=A4,leftMargin=1.5*cm,rightMargin=1.5*cm,topMargin=1.5*cm,bottomMargin=1.5*cm)
+                _aw_vp=A4[0]-3*cm; _st_vp=[]
+                _st_vp.append(Paragraph(f"PUTÚ ACTIVO — Ventas de Productos {fm_vp}",ParagraphStyle("vH",fontName="Helvetica-Bold",fontSize=13,textColor=rl_colors.HexColor("#6DBE45"),spaceAfter=6)))
+                _vp_hdr=[["Fecha","Producto","Monto","Vendedor"]]
+                _vp_rows=[[fmt_fecha(str(r2.get("fecha",""))),str(r2.get("producto",""))[:30],f"${int(float(r2.get('monto',0))):,}",str(r2.get("usuario",""))] for _,r2 in dvp.iterrows()]
+                _vp_rows.append(["","TOTAL",f"${int(dvp['monto'].sum()):,}",""])
+                _tvp=Table(_vp_hdr+_vp_rows,colWidths=[_aw_vp*0.2,_aw_vp*0.4,_aw_vp*0.2,_aw_vp*0.2])
+                _tvp.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),rl_colors.HexColor("#6DBE45")),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),9),("ROWBACKGROUNDS",(0,1),(-1,-2),[rl_colors.white,rl_colors.HexColor("#F5F5F5")]),("BACKGROUND",(0,-1),(-1,-1),rl_colors.HexColor("#1A1A1A")),("TEXTCOLOR",(0,-1),(-1,-1),rl_colors.white),("FONTNAME",(0,-1),(-1,-1),"Helvetica-Bold"),("GRID",(0,0),(-1,-1),0.3,rl_colors.HexColor("#DDD")),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),("LEFTPADDING",(0,0),(-1,-1),6)]))
+                _st_vp.append(_tvp)
+                _pd_vp.build(_st_vp)
+                st.download_button("⬇️ Descargar PDF ventas",_pb_vp.getvalue(),f"ventas_{fm_vp}.pdf","application/pdf",use_container_width=True)
         else:
             st.markdown(f'<div class="info-box">Sin ventas en {fm_vp}.</div>',unsafe_allow_html=True)
 
@@ -3082,7 +3551,19 @@ elif pagina=="📊 Reportes":
         _exa.download_button("⬇️ CSV",_csv_a,"activos.csv","text/csv",use_container_width=True,key="rep_act_csv")
         _filas_a="".join([f"<tr><td>{r['N°']}</td><td>{r['nombre']}</td><td>{r['rut']}</td><td>{r['tipo_plan']}</td><td>{r['fecha_vencimiento']}</td><td>{r['celular']}</td></tr>" for _,r in da2.iterrows()])
         _html_a=f"""<!DOCTYPE html><html><head><meta charset='utf-8'><style>@page{{size:letter;margin:2cm}}body{{font-family:Arial;font-size:9pt}}h2{{color:#6DBE45}}table{{width:100%;border-collapse:collapse}}th{{background:#6DBE45;color:black;padding:5px}}td{{padding:4px;border-bottom:1px solid #ddd}}tr:nth-child(even){{background:#f9f9f9}}</style></head><body><h2>PUTÚ ACTIVO — Clientes Activos</h2><p>Fecha: {hoy.strftime('%d/%m/%Y')} | Total: {len(da2)}</p><table><tr><th>#</th><th>Nombre</th><th>RUT</th><th>Plan</th><th>Vencimiento</th><th>Celular</th></tr>{_filas_a}</table></body></html>"""
-        _exb.download_button("🖨️ PDF carta (HTML)",_html_a.encode(),"activos.html","text/html",use_container_width=True,key="rep_act_pdf")
+        if REPORTLAB_OK:
+            _pb_ac=io.BytesIO()
+            _pd_ac=SimpleDocTemplate(_pb_ac,pagesize=A4,leftMargin=1.5*cm,rightMargin=1.5*cm,topMargin=1.5*cm,bottomMargin=1.5*cm)
+            _aw_ac=A4[0]-3*cm; _st_ac=[]
+            _st_ac.append(Paragraph(f"PUTÚ ACTIVO — Clientes Activos",ParagraphStyle("aH",fontName="Helvetica-Bold",fontSize=13,textColor=rl_colors.HexColor("#6DBE45"),spaceAfter=4)))
+            _st_ac.append(Paragraph(f"Fecha: {hoy.strftime('%d/%m/%Y')} | Total: {len(da2)}",ParagraphStyle("aS",fontName="Helvetica",fontSize=9,textColor=rl_colors.HexColor("#888"),spaceAfter=8)))
+            _ac_hdr=[["#","Nombre","RUT","Plan","Vencimiento","Celular"]]
+            _ac_rows=[[str(r3["N°"]),str(r3["nombre"]),str(r3["rut"]),str(r3["tipo_plan"]),str(r3["fecha_vencimiento"]),str(r3["celular"])] for _,r3 in da2.iterrows()]
+            _tac=Table(_ac_hdr+_ac_rows,colWidths=[_aw_ac*0.06,_aw_ac*0.28,_aw_ac*0.16,_aw_ac*0.14,_aw_ac*0.18,_aw_ac*0.18])
+            _tac.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),rl_colors.HexColor("#6DBE45")),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),8),("ROWBACKGROUNDS",(0,1),(-1,-1),[rl_colors.white,rl_colors.HexColor("#F5F5F5")]),("GRID",(0,0),(-1,-1),0.3,rl_colors.HexColor("#DDD")),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),("LEFTPADDING",(0,0),(-1,-1),5)]))
+            _st_ac.append(_tac)
+            _pd_ac.build(_st_ac)
+            _exb.download_button("⬇️ PDF Clientes Activos",_pb_ac.getvalue(),"activos.pdf","application/pdf",use_container_width=True,key="rep_act_pdf")
     with ti:
         st.markdown(f'<div class="info-box">📋 {len(df_inac)} inactivos — solo consulta.</div>',unsafe_allow_html=True)
         bi=st.text_input("Buscar",key="ib2")
@@ -3925,7 +4406,11 @@ elif pagina=="📋 Rutinas":
 elif pagina=="⚙️ Base de Datos":
     st.markdown('<div class="section-header">⚙️ Base de Datos Unificada</div>',unsafe_allow_html=True)
     if st.button("← Volver",key="db_volver"): st.session_state._goto="🏠 Dashboard"; st.rerun()
-    tim,tex,tad=st.tabs(["📥 Importar","📤 Exportar","🗄️ Administración"])
+    _es_admin_bd=st.session_state.get("rol","").lower() in ("admin","administrador")
+    if _es_admin_bd:
+        tim,tex,tad,tusr,tlog=st.tabs(["📥 Importar","📤 Exportar","🗄️ Administración","👥 Usuarios","📋 Log"])
+    else:
+        tim,tex,tad=st.tabs(["📥 Importar","📤 Exportar","🗄️ Administración"])
     with tim:
         st.markdown("""<div class="info-box">
           <b>Dos modos de importación:</b><br>
@@ -3954,3 +4439,129 @@ elif pagina=="⚙️ Base de Datos":
             for i,(t,n) in enumerate(tots.items()): c[i%4].metric(t.capitalize(),n)
             st.markdown(f"**DB:** `{DB_PATH}`")
         else: st.markdown('<div class="info-box">Solo Administradores.</div>',unsafe_allow_html=True)
+
+    # ── TAB USUARIOS (solo admin) ─────────────────────────────────────────
+    if _es_admin_bd:
+        with tusr:
+            st.markdown(f"<b style='color:{VERDE}'>👥 Gestión de usuarios del sistema</b>",unsafe_allow_html=True)
+            _TODOS_ACCESOS=["🏠 Dashboard","👥 Clientes","💳 Pagos y Renovaciones","✅ Asistencia",
+                "🏃 Clases & Talleres","🛍 Venta Productos","💪 Ejercicios","📋 Rutinas",
+                "📊 Reportes","⚙️ Base de Datos"]
+            _ACCESOS_DEF={
+                "admin":         _TODOS_ACCESOS[:],
+                "Administrador": _TODOS_ACCESOS[:],
+                "entrenador":    ["🏠 Dashboard","👥 Clientes","✅ Asistencia","💪 Ejercicios","📋 Rutinas","📊 Reportes"],
+                "asistente":     ["🏠 Dashboard","👥 Clientes","💳 Pagos y Renovaciones","✅ Asistencia","🏃 Clases & Talleres","🛍 Venta Productos","📊 Reportes"],
+            }
+            _us_df=db_query("SELECT id,usuario,nombre,rol,activo FROM usuarios_sistema ORDER BY id")
+
+            if not _us_df.empty:
+                # Construir dataframe editable
+                import pandas as _pd_usr
+                _edit_rows=[]
+                for _,_ur in _us_df.iterrows():
+                    _urd=_ur.to_dict()
+                    _acc_rol=_ACCESOS_DEF.get(_urd['rol'],_TODOS_ACCESOS)
+                    _row={"id":int(_urd['id']),"Usuario":_urd['usuario'],"Nombre":_urd['nombre'],
+                          "Rol":_urd['rol'],"Activo":bool(_urd['activo'])}
+                    for _acc in _TODOS_ACCESOS:
+                        _row[_acc.split(" ",1)[-1][:12]]=bool(_acc in _acc_rol)
+                    _edit_rows.append(_row)
+                _edit_df=_pd_usr.DataFrame(_edit_rows)
+
+                # Columnas configuración para data_editor
+                _col_cfg={"id":st.column_config.NumberColumn("ID",disabled=True,width="small"),
+                    "Usuario":st.column_config.TextColumn("Usuario",disabled=True,width="small"),
+                    "Nombre":st.column_config.TextColumn("Nombre",width="medium"),
+                    "Rol":st.column_config.SelectboxColumn("Rol",options=["admin","entrenador","asistente"],width="small"),
+                    "Activo":st.column_config.CheckboxColumn("Activo",width="small")}
+                for _acc in _TODOS_ACCESOS:
+                    _k=_acc.split(" ",1)[-1][:12]
+                    _col_cfg[_k]=st.column_config.CheckboxColumn(_k,width="small")
+
+                _edited=st.data_editor(_edit_df,column_config=_col_cfg,
+                    use_container_width=True,hide_index=True,
+                    num_rows="fixed",key="usr_table_editor")
+
+                # Botón guardar cambios
+                if st.button("💾 Guardar cambios en tabla",key="usr_save",type="primary"):
+                    _cu=get_conn()
+                    for _,_er in _edited.iterrows():
+                        _eid=int(_er["id"])
+                        _enom=_er["Nombre"]; _erol=_er["Rol"]; _eact=int(_er["Activo"])
+                        _cu.execute("UPDATE usuarios_sistema SET nombre=?,rol=?,activo=? WHERE id=?",
+                            (_enom,_erol,_eact,_eid))
+                    _cu.commit(); _cu.close()
+                    log_action("USUARIOS_EDIT","Tabla de usuarios actualizada")
+                    db_query.clear(); st.success("✅ Cambios guardados"); st.rerun()
+
+                # Editar clave individualmente
+                with st.expander("🔑 Cambiar contraseña de un usuario"):
+                    _pw1,_pw2,_pw3=st.columns(3)
+                    _pw_usr=_pw1.selectbox("Usuario",_us_df["usuario"].tolist(),key="pw_sel")
+                    _pw_new=_pw2.text_input("Nueva contraseña",type="password",key="pw_new")
+                    if _pw3.button("💾 Cambiar clave",key="pw_save",use_container_width=True):
+                        if len(_pw_new)>=4:
+                            _cpu=get_conn(); _cpu.execute("UPDATE usuarios_sistema SET password_hash=? WHERE usuario=?",(_h(_pw_new),_pw_usr)); _cpu.commit(); _cpu.close()
+                            log_action("CLAVE_CAMBIO",f"Clave cambiada para {_pw_usr}")
+                            st.success(f"✅ Clave de {_pw_usr} actualizada")
+                        else: st.warning("Mínimo 4 caracteres")
+
+                # Eliminar usuario
+                with st.expander("🗑️ Eliminar usuario"):
+                    _del_opts=[u for u in _us_df["usuario"].tolist() if u!="admin"]
+                    if _del_opts:
+                        _del_u=st.selectbox("Usuario a eliminar",_del_opts,key="del_usr_sel")
+                        if st.button("🗑️ Eliminar",key="del_usr_btn"):
+                            _cdu=get_conn(); _cdu.execute("DELETE FROM usuarios_sistema WHERE usuario=?",(_del_u,)); _cdu.commit(); _cdu.close()
+                            log_action("USUARIO_ELIMINAR",f"Usuario {_del_u} eliminado")
+                            db_query.clear(); st.rerun()
+                    else:
+                        st.caption("No hay usuarios eliminables.")
+
+            st.divider()
+            # ── Crear nuevo usuario ──────────────────────────────────────────
+            st.markdown(f"<b style='color:{VERDE}'>➕ Crear nuevo usuario</b>",unsafe_allow_html=True)
+            with st.form("form_new_usr",clear_on_submit=True):
+                _nu1,_nu2=st.columns(2)
+                _nu_usr=_nu1.text_input("Usuario (login)",placeholder="juan.perez")
+                _nu_nom=_nu2.text_input("Nombre completo",placeholder="Juan Pérez")
+                _nu3,_nu4=st.columns(2)
+                _ROLES=["admin","entrenador","asistente"]
+                _nu_rol=_nu3.selectbox("Rol",_ROLES)
+                _nu_pas=_nu4.text_input("Contraseña",type="password")
+                _ok_nu=st.form_submit_button("➕ Crear usuario",type="primary",use_container_width=True)
+            if _ok_nu and _nu_usr.strip() and _nu_nom.strip() and len(_nu_pas)>=4:
+                try:
+                    _cnu=get_conn()
+                    _cnu.execute("INSERT INTO usuarios_sistema (usuario,nombre,password_hash,rol,activo) VALUES (?,?,?,?,1)",
+                        (_nu_usr.strip().lower(),_nu_nom.strip(),_h(_nu_pas),_nu_rol))
+                    _cnu.commit(); _cnu.close()
+                    log_action("USUARIO_CREAR",f"Nuevo usuario {_nu_usr} rol={_nu_rol}")
+                    st.success(f"✅ Usuario '{_nu_usr}' creado"); st.rerun()
+                except Exception as _eu: st.error(f"Error: {_eu}")
+
+        with tlog:
+            st.markdown(f"<b style='color:{VERDE}'>📋 Log de actividad</b>",unsafe_allow_html=True)
+            _lg1,_lg2,_lg3=st.columns(3)
+            _lg_usr=_lg1.selectbox("Usuario",["Todos"]+[r[0] for r in get_conn().execute("SELECT DISTINCT usuario FROM activity_log ORDER BY usuario").fetchall()],key="lg_usr")
+            _lg_acc=_lg2.selectbox("Acción",["Todas"]+[r[0] for r in get_conn().execute("SELECT DISTINCT accion FROM activity_log ORDER BY accion").fetchall()],key="lg_acc")
+            _lg_lim=_lg3.selectbox("Mostrar",[50,100,250,500],key="lg_lim")
+            _lg_w=[]; _lg_p=[]
+            if _lg_usr!="Todos": _lg_w.append("usuario=?"); _lg_p.append(_lg_usr)
+            if _lg_acc!="Todas": _lg_w.append("accion=?"); _lg_p.append(_lg_acc)
+            _lg_q="SELECT timestamp,usuario,rol,accion,detalle,rut_afectado FROM activity_log"+(" WHERE "+" AND ".join(_lg_w) if _lg_w else "")+" ORDER BY id DESC LIMIT ?"
+            _lg_p.append(_lg_lim)
+            _lg_df=db_query(_lg_q,tuple(_lg_p))
+            if not _lg_df.empty:
+                _lg_df["timestamp"]=_lg_df["timestamp"].apply(lambda x:x[:19] if x else "")
+                st.dataframe(_lg_df.rename(columns={"timestamp":"Fecha/Hora","usuario":"Usuario","rol":"Rol","accion":"Acción","detalle":"Detalle","rut_afectado":"RUT"}),
+                    use_container_width=True,hide_index=True,height=500)
+                st.caption(f"{len(_lg_df)} registros mostrados")
+                import io as _io_lg
+                _xls_lg=_io_lg.BytesIO()
+                _lg_df.to_excel(_xls_lg,index=False)
+                st.download_button("⬇️ Exportar log Excel",_xls_lg.getvalue(),"activity_log.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",use_container_width=True)
+            else:
+                st.markdown('<div class="info-box">Sin registros de actividad aún.</div>',unsafe_allow_html=True)
