@@ -1,0 +1,11 @@
+[
+  {
+    "rut": "17214635-k",
+    "nombre": "Juan Alarcón Saavedra",
+    "fecha": "2026-06-25",
+    "monto": 50000,
+    "concepto": "Mensualidad",
+    "observacion": "prueba",
+    "usuario": "Administrador"
+  }
+]
