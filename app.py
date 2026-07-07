@@ -198,6 +198,59 @@ def init_db():
         detalle TEXT,
         rut_afectado TEXT
     );
+    CREATE TABLE IF NOT EXISTS clases_funcionales (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL,
+        objetivo TEXT,
+        duracion_min INTEGER DEFAULT 60,
+        max_participantes INTEGER DEFAULT 20,
+        observaciones TEXT,
+        fecha_creacion TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS cf_calentamiento (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        clase_id INTEGER NOT NULL,
+        ejercicio_id INTEGER,
+        nombre_libre TEXT,
+        orden INTEGER DEFAULT 0,
+        tiempo_reps TEXT,
+        observaciones TEXT,
+        FOREIGN KEY (clase_id) REFERENCES clases_funcionales(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS cf_bloques (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        clase_id INTEGER NOT NULL,
+        nombre TEXT,
+        n_estaciones INTEGER DEFAULT 4,
+        tiempo_trabajo_seg INTEGER DEFAULT 40,
+        tiempo_descanso_seg INTEGER DEFAULT 20,
+        vueltas INTEGER DEFAULT 3,
+        descanso_vueltas_seg INTEGER DEFAULT 60,
+        orden INTEGER DEFAULT 0,
+        FOREIGN KEY (clase_id) REFERENCES clases_funcionales(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS cf_estaciones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bloque_id INTEGER NOT NULL,
+        numero INTEGER DEFAULT 1,
+        ejercicio_id INTEGER,
+        nombre_libre TEXT,
+        implemento TEXT,
+        tiempo_reps TEXT,
+        observaciones TEXT,
+        FOREIGN KEY (bloque_id) REFERENCES cf_bloques(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS cf_vuelta_calma (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        clase_id INTEGER NOT NULL,
+        ejercicio_id INTEGER,
+        nombre_libre TEXT,
+        orden INTEGER DEFAULT 0,
+        tipo TEXT DEFAULT 'estiramiento',
+        tiempo_reps TEXT,
+        observaciones TEXT,
+        FOREIGN KEY (clase_id) REFERENCES clases_funcionales(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS usuarios_clientes (
         rut TEXT PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,
@@ -648,7 +701,22 @@ def exportar_todo_excel():
 # PAGE CONFIG
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Putú Activo",page_icon="🏋️",
-                   layout="wide",initial_sidebar_state="auto")
+                   layout="wide",initial_sidebar_state="expanded")
+
+# Forzar sidebar abierto limpiando el estado guardado en localStorage
+st.markdown("""<script>
+(function(){
+    try {
+        // Limpiar cualquier estado guardado del sidebar
+        Object.keys(localStorage).forEach(function(k){
+            if(k.toLowerCase().includes('sidebar')) localStorage.removeItem(k);
+        });
+        Object.keys(sessionStorage).forEach(function(k){
+            if(k.toLowerCase().includes('sidebar')) sessionStorage.removeItem(k);
+        });
+    } catch(e){}
+})();
+</script>""", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CSS
@@ -755,6 +823,24 @@ button[data-testid="baseButton-headerNoPadding"] svg {{
     fill:{VERDE} !important;
     color:{VERDE} !important;
 }}
+/* Botón MOSTRAR sidebar (cuando está oculto) — verde visible */
+div[data-testid="stSidebarCollapsedControl"] {{
+    background:{VERDE} !important;
+    border-radius:0 10px 10px 0 !important;
+    padding:4px 2px !important;
+}}
+div[data-testid="stSidebarCollapsedControl"] button {{
+    background:transparent !important;
+    color:{NEGRO} !important;
+    border:none !important;
+    box-shadow:none !important;
+}}
+div[data-testid="stSidebarCollapsedControl"] svg {{
+    fill:{NEGRO} !important;
+    color:{NEGRO} !important;
+    width:22px !important;
+    height:22px !important;
+}}
 div[data-testid="stFormSubmitButton"]>button{{background:{VERDE};color:{NEGRO};font-weight:700;border:none;border-radius:9px;padding:12px 32px;font-size:1rem;}}
 div[data-testid="stFormSubmitButton"]>button:hover{{background:{VERDE_DK};color:{BLANCO};}}
 .stTextInput input,.stSelectbox select,.stNumberInput input,.stDateInput input,.stTextArea textarea{{background:{GRIS2} !important;color:{BLANCO} !important;border:1px solid {GRIS3} !important;border-radius:9px !important;font-size:1.05rem !important;}}
@@ -780,7 +866,6 @@ div[data-testid="stExpander"]{{background:{GRIS2};border:1px solid {GRIS3};borde
 /* Pantalla aeropuerto */
 .airport-row{{background:{GRIS2};border-bottom:1px solid {GRIS3};padding:10px 20px;display:flex;justify-content:space-between;align-items:center;animation:fadein .5s;}}
 @keyframes fadein{{from{{opacity:0}}to{{opacity:1}}}}
-@media print{{section[data-testid="stSidebar"],div[data-testid="stToolbar"],.stButton,.stDownloadButton,.no-print{{display:none !important;}}body{{background:white !important;color:#111 !important;}}}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -826,17 +911,55 @@ if not sesion_valida() and not st.session_state.modo:
     else:
         st.markdown(f'<div style="text-align:center;font-size:2rem;font-weight:900;color:{VERDE}">🏋️ PUTÚ ACTIVO</div>',unsafe_allow_html=True)
     st.markdown(f'<div style="text-align:center;color:{GRIS_T};font-size:.95rem;margin:4px 0 16px;letter-spacing:.08em;">CENTRO DE ENTRENAMIENTO</div>',unsafe_allow_html=True)
+    st.markdown(f"""<style>
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {{
+        background:#0D1F0D !important;
+        border:4px solid {VERDE} !important;
+        border-radius:16px !important;
+        color:{VERDE} !important;
+        font-size:2rem !important;
+        font-weight:900 !important;
+        padding:28px 12px !important;
+        height:auto !important;
+        white-space:normal !important;
+        line-height:1.6 !important;
+        box-shadow:0 0 18px 2px {VERDE}55 !important;
+    }}
+    div[data-testid="stHorizontalBlock"] > div:nth-child(3) button {{
+        background:#0D1626 !important;
+        border:4px solid {AZUL} !important;
+        border-radius:16px !important;
+        color:{AZUL} !important;
+        font-size:2rem !important;
+        font-weight:900 !important;
+        padding:28px 12px !important;
+        height:auto !important;
+        white-space:normal !important;
+        line-height:1.6 !important;
+        box-shadow:0 0 18px 2px {AZUL}55 !important;
+    }}
+    div[data-testid="stHorizontalBlock"] > div:nth-child(4) button {{
+        background:#1A1A1A !important;
+        border:4px solid #AAAAAA !important;
+        border-radius:16px !important;
+        color:{BLANCO} !important;
+        font-size:2rem !important;
+        font-weight:900 !important;
+        padding:28px 12px !important;
+        height:auto !important;
+        white-space:normal !important;
+        line-height:1.6 !important;
+        box-shadow:0 0 18px 2px #AAAAAA55 !important;
+    }}
+    </style>""",unsafe_allow_html=True)
     _,bc1,bc2,bc3,_ = st.columns([1,1.4,1.4,1.4,1])
     with bc1:
-        st.markdown(f'<style>div[data-testid="stButton"]:has(button[data-testid="btn_cliente"]) button{{background:{GRIS2}!important;border:3px solid {VERDE}!important;border-radius:16px!important;padding:28px 16px!important;height:auto!important;white-space:normal!important;color:{VERDE}!important;font-size:1.1rem!important;font-weight:900!important;line-height:2!important;letter-spacing:.05em}}</style>',unsafe_allow_html=True)
         if st.button("🏋️\n\nASISTENCIA\n\nMarcar entrada · Salida", key="btn_cliente", use_container_width=True):
             st.session_state.modo="cliente"; st.rerun()
     with bc2:
-        st.markdown(f'<style>div[data-testid="stButton"]:has(button[data-testid="btn_micuenta"]) button{{background:{GRIS2}!important;border:3px solid {AZUL}!important;border-radius:16px!important;padding:28px 16px!important;height:auto!important;white-space:normal!important;color:{AZUL}!important;font-size:1.1rem!important;font-weight:900!important;line-height:2!important;letter-spacing:.05em}}</style>',unsafe_allow_html=True)
         if st.button("👤\n\nMI CUENTA\n\nRutina · Evaluación · Pagos", key="btn_micuenta", use_container_width=True):
             st.session_state.modo="micuenta"; st.rerun()
     with bc3:
-        st.markdown(f'<style>div[data-testid="stButton"]:has(button[data-testid="btn_admin"]) button{{background:{GRIS2}!important;border:3px solid #888!important;border-radius:16px!important;padding:28px 16px!important;height:auto!important;white-space:normal!important;color:{BLANCO}!important;font-size:1.1rem!important;font-weight:900!important;line-height:2!important;letter-spacing:.05em}}</style>',unsafe_allow_html=True)
         if st.button("🔐\n\nADMIN\n\nGestión completa", key="btn_admin", use_container_width=True):
             st.session_state.modo="admin"; st.rerun()
     st.stop()
@@ -1275,52 +1398,85 @@ if st.session_state.modo == "cliente":
 # ─────────────────────────────────────────────────────────────────────────────
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────────────────────
-with st.sidebar:
-    # Logo centrado, pegado arriba, sin padding extra
+# Toggle sidebar via session_state
+if "sidebar_visible" not in st.session_state:
+    st.session_state.sidebar_visible = True
+
+# ── NAVBAR HORIZONTAL ─────────────────────────────────────────────────────────
+st.markdown(f"""<style>
+section[data-testid="stSidebar"]{{display:none !important;}}
+div[data-testid="stSidebarCollapsedControl"]{{display:none !important;}}
+button[data-testid="baseButton-headerNoPadding"]{{display:none !important;}}
+.navbar-radio div[role="radiogroup"],
+.navbar-radio [data-testid="stHorizontalBlock"] {{
+    display:flex !important;flex-direction:row !important;
+    flex-wrap:wrap !important;gap:4px !important;
+    background:{GRIS2} !important;
+    border-radius:10px !important;padding:5px !important;
+}}
+.navbar-radio div[role="radiogroup"] label,
+.navbar-radio [data-testid="stHorizontalBlock"] label {{
+    background:{GRIS3} !important;color:{BLANCO} !important;
+    border-radius:7px !important;padding:7px 0 !important;
+    font-size:.88rem !important;font-weight:700 !important;
+    cursor:pointer !important;margin:0 !important;
+    border:1px solid transparent !important;
+    white-space:nowrap !important;
+    flex:0 0 calc(20% - 4px) !important;
+    max-width:calc(20% - 4px) !important;
+    text-align:center !important;
+    box-sizing:border-box !important;
+}}
+.navbar-radio div[role="radiogroup"] label:has(input:checked) {{
+    background:{VERDE} !important;color:{NEGRO} !important;
+    border-color:{VERDE} !important;font-weight:900 !important;
+}}
+.navbar-radio div[role="radiogroup"] label:hover {{
+    background:{GRIS4} !important;border-color:{VERDE}88 !important;
+}}
+.navbar-radio div[role="radiogroup"] label span {{color:inherit !important;font-size:.88rem !important;}}
+.navbar-radio [data-testid="stMarkdownContainer"] p {{display:none;}}
+</style>""",unsafe_allow_html=True)
+
+_opciones_nav=[
+    "🏠 Dashboard","👥 Clientes","💳 Pagos y Renovaciones",
+    "✅ Asistencia","🏃 Clases & Talleres","🛍 Venta Productos",
+    "💪 Ejercicios","📋 Rutinas","📊 Reportes","⚙️ Base de Datos"]
+_permisos_pagina={
+    "🏠 Dashboard":"dashboard","👥 Clientes":"clientes",
+    "💳 Pagos y Renovaciones":"pagos","✅ Asistencia":"asistencia",
+    "🏃 Clases & Talleres":"clases","🛍 Venta Productos":"reportes",
+    "💪 Ejercicios":"clientes","📋 Rutinas":"clientes",
+    "📊 Reportes":"reportes","⚙️ Base de Datos":"db",
+}
+_opciones_nav=[o for o in _opciones_nav if tiene_permiso(_permisos_pagina.get(o,"dashboard"))]
+_idx_default=0
+if st.session_state.get("_goto") and st.session_state["_goto"] in _opciones_nav:
+    _idx_default=_opciones_nav.index(st.session_state["_goto"])
+    st.session_state["_goto"]=None
+
+_n1,_n2,_n3=st.columns([1.2,6,1.2])
+with _n1:
     if LOGO_PATH:
-        st.markdown(f'''<div style="text-align:center;padding:0;margin:-16px -8px 2px -8px;">
-          <img src="data:image/png;base64,{__import__("base64").b64encode(open(LOGO_PATH,"rb").read()).decode()}"
-               style="width:90%;max-width:180px;display:block;margin:0 auto;"/>
-        </div>''',unsafe_allow_html=True)
-    else:
-        st.markdown(f'<div style="font-size:1.3rem;font-weight:900;color:{VERDE};padding:2px 4px;">🏋️ PUTÚ ACTIVO</div>',unsafe_allow_html=True)
-    st.markdown(f'<div style="background:{GRIS3};border-radius:5px;padding:2px 7px;margin:2px 0;font-size:.68rem;">👤 <b style="color:{VERDE}">{st.session_state.nombre_u}</b> <span style="color:#555">· {st.session_state.rol}</span></div>',unsafe_allow_html=True)
-    st.markdown('<hr style="margin:3px 0;border-color:#2E2E2E">',unsafe_allow_html=True)
-    _opciones=[
-        "🏠 Dashboard","👥 Clientes",
-        "💳 Pagos y Renovaciones",
-        "✅ Asistencia","🏃 Clases & Talleres",
-        "🛍 Venta Productos","💪 Ejercicios","📋 Rutinas","📊 Reportes","⚙️ Base de Datos"]
-    # Filtrar opciones según permisos del usuario PRIMERO
-    _permisos_pagina = {
-        "🏠 Dashboard":              "dashboard",
-        "👥 Clientes":               "clientes",
-        "💳 Pagos y Renovaciones":   "pagos",
-        "✅ Asistencia":             "asistencia",
-        "🏃 Clases & Talleres":      "clases",
-        "🛍 Venta Productos":        "reportes",
-        "💪 Ejercicios":             "clientes",
-        "📋 Rutinas":                "clientes",
-        "📊 Reportes":               "reportes",
-        "⚙️ Base de Datos":          "db",
-    }
-    _opciones=[o for o in _opciones if tiene_permiso(_permisos_pagina.get(o,"dashboard"))]
-    # Calcular índice DESPUÉS de filtrar
-    _idx_default=0
-    if st.session_state.get("_goto") and st.session_state["_goto"] in _opciones:
-        _idx_default=_opciones.index(st.session_state["_goto"])
-        st.session_state["_goto"]=None
-    pagina=st.radio("",_opciones,index=min(_idx_default,len(_opciones)-1))
-    st.markdown("---")
+        import base64 as _b64nav
+        _logo_nav=_b64nav.b64encode(open(LOGO_PATH,"rb").read()).decode()
+        st.markdown(f'<img src="data:image/png;base64,{_logo_nav}" style="height:120px;display:block;margin:0 auto">',unsafe_allow_html=True)
+with _n2:
+    st.markdown('<div class="navbar-radio">',unsafe_allow_html=True)
+    pagina=st.radio("",_opciones_nav,index=min(_idx_default,len(_opciones_nav)-1),
+        horizontal=True,label_visibility="collapsed",key="nav_pagina")
+    st.markdown('</div>',unsafe_allow_html=True)
+with _n3:
     mins=max(0,int((SESSION_H*3600-(time.time()-st.session_state.login_time))/60))
-    st.markdown(f'<div style="color:#555;font-size:.65rem;margin-bottom:4px">Sesión: ~{mins} min</div>',unsafe_allow_html=True)
-    _sb1,_sb2=st.columns(2)
-    if _sb1.button("🚪 Salir",key="btn_cerrar_sesion",use_container_width=True):
+    st.markdown(f'<div style="font-size:.68rem;color:#555;text-align:center;margin-bottom:4px">👤 <b style="color:{VERDE}">{st.session_state.nombre_u}</b><br>{st.session_state.rol}<br>~{mins} min</div>',unsafe_allow_html=True)
+    _nb1,_nb2=st.columns(2)
+    if _nb1.button("🚪",key="btn_cerrar_sesion",use_container_width=True,help="Cerrar sesión"):
         st.session_state.logueado=False; st.session_state.login_time=None
         st.session_state.modo=""; st.rerun()
-    if _sb2.button("🏠 Inicio",key="btn_inicio",use_container_width=True):
+    if _nb2.button("🏠",key="btn_inicio",use_container_width=True,help="Ir al inicio"):
         st.session_state.logueado=False; st.session_state.login_time=None
         st.session_state.modo=""; st.rerun()
+st.markdown('<hr style="margin:4px 0 8px 0;border-color:#2E2E2E">',unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DATOS GLOBALES
@@ -1900,6 +2056,7 @@ elif pagina=="👥 Clientes":
                 niv_v=sv(r,"nivel").capitalize(); niv=s1.selectbox("Nivel",NIVELES,index=NIVELES.index(niv_v) if niv_v in NIVELES else 0)
                 ok_ed=st.form_submit_button("💾 Guardar todos los cambios",use_container_width=True)
              if ok_ed:
+                st.success("✅ Datos guardados correctamente")
                 edad_n=int((hoy-fn).days/365.25); mes_n=mes_de_nacimiento(fn)
                 mc_n=msg_cumpleanos(nm); mv_n=msg_vencimiento(nm,fv_calc); mr_n=msg_renovacion(nm,fv_calc)
                 conn2=get_conn()
@@ -2352,6 +2509,7 @@ elif pagina=="👥 Clientes":
                     _np_notas=st.text_area("Notas / indicaciones",height=60)
                     _ok_plan=st.form_submit_button("💾 Crear plan",type="primary",use_container_width=True)
                 if _ok_plan and _np_nom.strip():
+                    st.success("✅ Plan nutricional creado correctamente")
                     _cn_plan=get_conn()
                     _new_plan=_cn_plan.execute(
                         "INSERT INTO planes_nutri (cliente_rut,nombre,profesional,objetivo,kcal_objetivo,notas,activo) VALUES (?,?,?,?,?,?,1)",
@@ -2668,7 +2826,25 @@ elif pagina=="👥 Clientes":
                     dev_d=dev.copy(); dev_d["fecha"]=dev_d["fecha"].apply(fmt_fecha)
                     cols_ev=[c for c in ["fecha","peso","imc","grasa_pct","masa_musc","agua_pct","brazos","abdomen","cadera","muslos","observacion"] if c in dev_d.columns]
                     dev_d.insert(0,"N°",range(1,len(dev_d)+1))
-                    st.dataframe(dev_d[["N°"]+cols_ev],use_container_width=True,height=200)
+                    dev_d.insert(0,"🗑️",False)
+                    _ev_edited=st.data_editor(
+                        dev_d[["🗑️","N°"]+cols_ev],
+                        use_container_width=True,
+                        hide_index=True,
+                        height=200,
+                        column_config={"🗑️":st.column_config.CheckboxColumn("🗑️",width="small")},
+                        disabled=["N°"]+cols_ev,
+                        key=f"ev_editor_{rut}"
+                    )
+                    _sel_ev=_ev_edited[_ev_edited["🗑️"]==True]
+                    if not _sel_ev.empty:
+                        if st.button(f"🗑️ Eliminar {len(_sel_ev)} evaluación(es) seleccionada(s)",key=f"del_ev_btn_{rut}",type="primary"):
+                            _ids_del=dev.iloc[_sel_ev.index]["id"].tolist()
+                            _cdel=get_conn()
+                            for _eid in _ids_del:
+                                _cdel.execute("DELETE FROM evaluaciones WHERE id=?",(int(_eid),))
+                            _cdel.commit(); _cdel.close()
+                            st.cache_data.clear(); st.rerun()
                     # WA
                     def _emv_wa(k,u=""): v=ult.get(k); return f"{float(v):.1f}{u}" if v and str(v) not in ["nan","None","0.0",""] else "—"
                     _msg_ev=(f"📋 *Evaluación Putú Activo*%0A👤 *{sv(r,'nombre')}*%0A📅 Fecha: {fmt_fecha(str(ult.get('fecha','')))}%0A"
@@ -2676,9 +2852,6 @@ elif pagina=="👥 Clientes":
                         f"🔴 Grasa: *{_emv_wa('grasa_pct',' %')}*%0A💪 Masa Musc.: *{_emv_wa('masa_musc',' %')}*%0A"
                         f"💪 ¡Sigue entrenando! Putú Activo.")
                     st.markdown(f'<a href="{wa_url(sv(r,"celular"),_msg_ev)}" target="_blank" style="display:inline-block;background:#25D366;color:white;font-weight:700;padding:7px 18px;border-radius:8px;text-decoration:none;font-size:.92rem;margin-top:6px;">📲 Compartir evaluación por WhatsApp</a>',unsafe_allow_html=True)
-                    for _vi2,_vr2 in dev.reset_index(drop=True).iterrows():
-                        if st.button("🗑️",key=f"del_ev_{_vr2.get('id',_vi2)}",help="Eliminar"):
-                            db_exec("DELETE FROM evaluaciones WHERE id=?",(int(_vr2["id"]),)); st.cache_data.clear(); st.rerun()
                 else:
                     st.markdown('<div class="info-box">Sin evaluaciones.</div>',unsafe_allow_html=True)
             with ten:
@@ -2701,6 +2874,7 @@ elif pagina=="👥 Clientes":
                     obs_ev=st.text_area("Observaciones",height=60)
                     ok_ev=st.form_submit_button("💾 Registrar evaluación",type="primary",use_container_width=True)
                 if ok_ev:
+                    st.success("✅ Evaluación registrada")
                     db_exec("INSERT INTO evaluaciones (rut,fecha,peso,talla,imc,grasa_pct,masa_musc,agua_pct,brazos,abdomen,cadera,muslos,observacion) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (rut,str(fev),peso_v or None,talla_ev or None,imc_v or None,gr_v or None,mm_v or None,ag_v or None,bz_v or None,ab_v or None,ca_v or None,mu_v or None,obs_ev or None))
                     st.success("✅ Evaluación registrada."); st.rerun()
@@ -2947,6 +3121,7 @@ elif pagina=="👥 Clientes":
                              dias_lu,dias_ma,dias_mi,dias_ju,dias_vi,dias_sa,
                              mc_n,mv_n,mr_n,datetime.now().isoformat(),datetime.now().isoformat()))
                         st.cache_data.clear()
+                        st.success(f"✅ Cliente '{nm.strip()}' registrado correctamente")
                         # Mensaje de bienvenida WA
                         _cel_nc=fmt_cel(ce)
                         _msg_wa_nc=f"Hola *{nm}* 👋 ¡Bienvenido/a a Putú Activo! 🏋️%0ATu inscripción fue registrada exitosamente.%0A📅 Plan: *{tp}* · Vence: *{fmt_fecha(fv_final_nc)}*%0A¡Nos vemos entrenando! 💪"
@@ -2971,7 +3146,7 @@ elif pagina=="👥 Clientes":
 elif pagina=="💳 Pagos y Renovaciones":
     st.markdown('<div class="section-header">💳 Pagos y Renovaciones</div>',unsafe_allow_html=True)
     # Botón volver
-    if st.button("← Volver",key="pr_volver"): st.session_state._goto="🏠 Dashboard"; st.rerun()
+    if st.button("← Volver",key="pr_volver"): st.rerun()
     # Mensaje si viene de Nuevo Cliente
     if st.session_state.get("_nc_msg"):
         _nc_wa=st.session_state.pop("_nc_wa_url","#")
@@ -3036,6 +3211,7 @@ elif pagina=="💳 Pagos y Renovaciones":
                 if desc_pr>0: p7pr.markdown(f'<div style="color:{VERDE};font-size:.85rem">Con descuento: <b>${mo_pr_final:,}</b></div>',unsafe_allow_html=True)
                 ok_pr=st.form_submit_button("💾 Registrar pago",use_container_width=True)
             if ok_pr:
+                st.success("✅ Pago registrado correctamente")
                 db_exec("INSERT INTO pagos (rut,nombre,fecha,monto,concepto,tipo_plan,frecuencia,medio_pago,observacion,usuario) VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (str(cs_pr["rut"]),str(cs_pr["nombre"]),str(fp_pr),mo_pr_final,conc_pr,tp_pr,fr_pr,med_pr,obs_pr,st.session_state.nombre_u))
                 nv_pr=calcular_vencimiento(fp_pr,conc_pr)
@@ -3088,7 +3264,7 @@ elif pagina=="✅ Asistencia":
     except: pass
 
     st.markdown('<div class="section-header">✅ Control de Asistencia</div>',unsafe_allow_html=True)
-    if st.button("← Volver",key="asist_volver"): st.session_state._goto="🏠 Dashboard"; st.rerun()
+    if st.button("← Volver",key="asist_volver"): st.rerun()
     tm,=st.tabs(["📌 Marcar asistencia"])
 
     with tm:
@@ -3263,7 +3439,7 @@ elif pagina=="✅ Asistencia":
 # ════════════════════════════════════════════════════════════════════════════
 elif pagina=="🏃 Clases & Talleres":
     st.markdown('<div class="section-header">🏃 Clases & Talleres</div>',unsafe_allow_html=True)
-    if st.button("← Volver",key="cls_volver"): st.session_state._goto="🏠 Dashboard"; st.rerun()
+    if st.button("← Volver",key="cls_volver"): st.rerun()
     tcc,trc,thc=st.tabs(["➕ Crear clase/taller","👤 Inscribir participante","📋 Historial"])
     with tcc:
         st.markdown("**Crear nueva clase o taller**")
@@ -3285,6 +3461,7 @@ elif pagina=="🏃 Clases & Talleres":
             cr_obs=cr2.text_input("Observaciones")
             ok_cr=st.form_submit_button("💾 Crear clase",use_container_width=True)
         if ok_cr and cr_nom.strip():
+            st.success("✅ Clase registrada correctamente")
             db_exec("INSERT INTO clases (tipo,titulo,fecha,hora,participante,monto,observacion,usuario) VALUES (?,?,?,?,?,?,?,?)",
                 (cr_tipo,cr_nom,str(cr_fc),str(cr_ho),
                  f"[CLASE] Instructor:{cr_inst} Cupos:{cr_cupos}",0,cr_obs,st.session_state.nombre_u))
@@ -3441,7 +3618,7 @@ elif pagina=="🏃 Clases & Talleres":
 # ════════════════════════════════════════════════════════════════════════════
 elif pagina=="🛍 Venta Productos":
     st.markdown('<div class="section-header">🛍 Venta de Productos</div>',unsafe_allow_html=True)
-    if st.button("← Volver",key="vp_volver"): st.session_state._goto="🏠 Dashboard"; st.rerun()
+    if st.button("← Volver",key="vp_volver"): st.rerun()
     tv1,tv2=st.tabs(["➕ Registrar venta","📋 Historial"])
     with tv1:
         with st.form("fvp_main"):
@@ -3520,7 +3697,7 @@ elif pagina=="🛍 Venta Productos":
 
 elif pagina=="📊 Reportes":
     st.markdown('<div class="section-header">📊 Reportes</div>',unsafe_allow_html=True)
-    if st.button("← Volver",key="rep_volver"): st.session_state._goto="🏠 Dashboard"; st.rerun()
+    if st.button("← Volver",key="rep_volver"): st.rerun()
     ta,ti,tv,tc2,tfc,tast,tven,tie,tseg=st.tabs(["✅ Activos","🔴 Inactivos","⚠️ Vencimientos","🎂 Cumpleaños","💰 Flujo de caja","📊 Asistencias","🛍 Ventas","💵 Ingresos & Egresos","👥 Seguimiento"])
     with ta:
         st.markdown(f"**{len(df_act)} clientes activos**")
@@ -3971,6 +4148,7 @@ elif pagina=="💪 Ejercicios":
                 _ok_ej_ed=_esave.form_submit_button("💾 Guardar cambios",use_container_width=True,type="primary")
                 _ok_ej_del=_edel.form_submit_button("🗑️ Eliminar",use_container_width=True)
             if _ok_ej_ed and _en.strip():
+                st.success("✅ Ejercicio actualizado correctamente")
                 _cnej=get_conn()
                 _cnej.execute("""UPDATE ejercicios SET nombre=?,url_imagen=?,descripcion=?,ejecucion=?,
                     musculo_primario=?,musculo_secundario=?,casa=?,gimnasio=?,estiramiento=?,rehabilitacion=?,
@@ -4082,7 +4260,7 @@ elif pagina=="💪 Ejercicios":
 
 elif pagina=="📋 Rutinas":
     st.markdown('<div class="section-header">📋 Rutinas de Entrenamiento</div>',unsafe_allow_html=True)
-    if st.button("← Volver",key="rut_volver"): st.session_state._goto="🏠 Dashboard"; st.rerun()
+    if st.button("← Volver",key="rut_volver"): st.rerun()
 
     TODOS_DIAS_R=["Día 1","Día 2","Día 3","Día 4","Día 5","Día 6"]
     METODOS_R=["Normal","Bi-serie","Superserie","Dropset","Piramidal","Isométrico","Al fallo","Excéntrico","Circuito","Otro"]
@@ -4158,7 +4336,7 @@ elif pagina=="📋 Rutinas":
                     for _idx_d,(_,_re) in enumerate(_ddf2.iterrows()):
                         _red=_re.to_dict(); _rid_e=int(_red["id"])
                         with st.container(border=True):
-                            _ci,_cn,_cb1,_cb2,_cb3,_cb4=st.columns([1,3.5,.55,.55,.55,.55])
+                            _ci,_cn,_cb1,_cb2,_cb3=st.columns([1,3.5,.55,.55,.55])
                             if _hv(_red.get("url_imagen")):
                                 try: _ci.image(_red["url_imagen"],width=52)
                                 except: _ci.markdown("🏋️")
@@ -4175,28 +4353,35 @@ elif pagina=="📋 Rutinas":
                                 _ids2=[r[0] for r in _hm2]; _pos2=_ids2.index(_rid_e)
                                 if _pos2<len(_ids2)-1:
                                     _cd=get_conn(); _cd.execute("UPDATE rutina_ejercicios SET orden=? WHERE id=?",(_hm2[_pos2+1][1],_rid_e)); _cd.execute("UPDATE rutina_ejercicios SET orden=? WHERE id=?",(_hm2[_pos2][1],_ids2[_pos2+1])); _cd.commit(); _cd.close(); db_query.clear(); st.rerun()
-                            if _cb3.button("✏️",key=f"ed_{label}_{_rid_e}",use_container_width=True):
-                                _k=f"edit_{label}_{_rid_e}"; st.session_state[_k]=not st.session_state.get(_k,False)
-                            if _cb4.button("🗑️",key=f"del_{label}_{_rid_e}",use_container_width=True):
+                            if _cb3.button("🗑️",key=f"del_{label}_{_rid_e}",use_container_width=True):
                                 _cdel=get_conn(); _cdel.execute("DELETE FROM rutina_ejercicios WHERE id=?",(_rid_e,)); _cdel.commit(); _cdel.close(); db_query.clear(); st.rerun()
-                            if st.session_state.get(f"edit_{label}_{_rid_e}",False):
-                                with st.form(f"form_ed_{label}_{_rid_e}"):
-                                    _f_met=st.selectbox("Método",METODOS_R,index=METODOS_R.index(_rv(_red.get("metodo"),"Normal")) if _rv(_red.get("metodo")) in METODOS_R else 0)
-                                    _fe1,_fe2,_fe3,_fe4=st.columns(4)
-                                    _f_ser=_fe1.text_input("Series",value=_rv(_red.get("series"),"3"))
-                                    _f_rep=_fe2.text_input("Reps",value=_rv(_red.get("repeticiones"),"10-12"))
-                                    _f_pes=_fe3.text_input("Carga",value=_rv(_red.get("peso"),""))
-                                    _f_tmp=_fe4.text_input("Descanso",value=_rv(_red.get("tempo_descanso"),"60s"))
-                                    _f_not=st.text_input("Notas",value=_rv(_red.get("notas"),""))
-                                    _fs,_fc=st.columns(2)
-                                    _ok_ed=_fs.form_submit_button("💾 Guardar",type="primary",use_container_width=True)
-                                    _ca_ed=_fc.form_submit_button("✕ Cancelar",use_container_width=True)
-                                if _ok_ed:
-                                    _cfe=get_conn(); _cfe.execute("UPDATE rutina_ejercicios SET metodo=?,series=?,repeticiones=?,peso=?,tempo_descanso=?,notas=? WHERE id=?",(_f_met,_f_ser,_f_rep,_f_pes,_f_tmp,_f_not,_rid_e)); _cfe.commit(); _cfe.close()
-                                    st.session_state.pop(f"edit_{label}_{_rid_e}",None); db_query.clear(); st.rerun()
-                                if _ca_ed: st.session_state.pop(f"edit_{label}_{_rid_e}",None); st.rerun()
+                            # Campos inline siempre visibles en misma fila
+                            _ei1,_ei2,_ei3,_ei4,_ei5=st.columns([1.5,1.5,1.5,1.5,2])
+                            _f_ser=_ei1.text_input("Ser.",value=_rv(_red.get("series"),"3"),key=f"ser_{label}_{_rid_e}",label_visibility="visible")
+                            _f_rep=_ei2.text_input("Reps",value=_rv(_red.get("repeticiones"),"12"),key=f"rep_{label}_{_rid_e}",label_visibility="visible")
+                            _f_pes=_ei3.text_input("Carga",value=_rv(_red.get("peso"),"0"),key=f"pes_{label}_{_rid_e}",label_visibility="visible")
+                            _f_tmp=_ei4.text_input("Desc.",value=_rv(_red.get("tempo_descanso"),"120s"),key=f"tmp_{label}_{_rid_e}",label_visibility="visible")
+                            _f_met=_ei5.selectbox("Método",METODOS_R,index=METODOS_R.index(_rv(_red.get("metodo"),"Normal")) if _rv(_red.get("metodo")) in METODOS_R else 0,key=f"met_{label}_{_rid_e}",label_visibility="visible")
+                            # Guardar cambios de este ejercicio en session_state
+                            _pend_key=f"pend_{label}_{rut_id}"
+                            if _pend_key not in st.session_state: st.session_state[_pend_key]={}
+                            st.session_state[_pend_key][_rid_e]={
+                                "metodo":_f_met,"series":_f_ser,"repeticiones":_f_rep,
+                                "peso":_f_pes,"tempo_descanso":_f_tmp}
                 else:
                     st.caption("Sin ejercicios — usa el buscador de abajo.")
+
+                # Botón guardar todos los cambios del día
+                _pend_key2=f"pend_{label}_{rut_id}"
+                if st.session_state.get(_pend_key2):
+                    if st.button("💾 Guardar cambios en rutina",key=f"save_all_{label}_{_dfl2}_{rut_id}",type="primary",use_container_width=True):
+                        _csa=get_conn()
+                        for _eid2,_evals2 in st.session_state[_pend_key2].items():
+                            _csa.execute("UPDATE rutina_ejercicios SET metodo=?,series=?,repeticiones=?,peso=?,tempo_descanso=? WHERE id=?",
+                                (_evals2["metodo"],_evals2["series"],_evals2["repeticiones"],_evals2["peso"],_evals2["tempo_descanso"],_eid2))
+                        _csa.commit(); _csa.close()
+                        st.session_state.pop(_pend_key2,None); db_query.clear()
+                        st.success("✅ Rutina guardada correctamente"); st.rerun()
 
                 # Buscador por día
                 st.markdown(f"<span style='color:{VERDE};font-weight:700'>➕ Agregar a {_dfl2}</span>",unsafe_allow_html=True)
@@ -4225,7 +4410,7 @@ elif pagina=="📋 Rutinas":
                                         _ca=get_conn(); _ca.execute("INSERT INTO rutina_ejercicios (rutina_id,ejercicio_id,dia_semana,orden,metodo,series,repeticiones,peso,tempo_descanso,notas) VALUES (?,?,?,?,?,?,?,?,?,?)",(rut_id,int(_efd["id"]),_dfl2,_mo+1,_met_d,_ser_v,_rep_v,"","60s","")); _ca.commit(); _ca.close(); db_query.clear(); st.rerun()
 
     # ── 3 TABS PRINCIPALES ─────────────────────────────────────────────────
-    tab_crear,tab_editar,tab_guardadas=st.tabs(["➕ Crear rutina","✏️ Editar rutina","📚 Rutinas guardadas"])
+    tab_crear,tab_editar,tab_guardadas,tab_cf=st.tabs(["➕ Crear rutina","✏️ Editar rutina","📚 Rutinas guardadas","⚡ Clases Funcionales"])
 
     # ══════════════════════════════════════════════════════════════════
     # TAB 1 — CREAR RUTINA
@@ -4403,9 +4588,460 @@ elif pagina=="📋 Rutinas":
                     if _gd2.button("❌ Cancelar",key=f"g_del_no_{_grd['id']}"):
                         st.session_state.pop(f"g_del_c_{_grd['id']}",None); st.rerun()
 
+    # ══════════════════════════════════════════════════════════════════
+    # TAB CLASES FUNCIONALES
+    # ══════════════════════════════════════════════════════════════════
+    with tab_cf:
+        st.markdown(f"<b style='color:{VERDE}'>⚡ Clases Funcionales en Circuito</b>",unsafe_allow_html=True)
+
+        _CF_OBJETIVOS=["Fuerza","Resistencia","HIIT","Pérdida de grasa","Potencia","Movilidad","Mixta"]
+        _CF_DURACIONES=[30,45,60,90]
+        _CF_TIPOS_CALMA=["Estiramiento","Respiración","Movilidad"]
+
+        # Migrar BD — agregar columnas vueltas y descanso_vueltas_seg si no existen
+        try:
+            _cm_cf=get_conn()
+            try: _cm_cf.execute("ALTER TABLE clases_funcionales ADD COLUMN vueltas INTEGER DEFAULT 3")
+            except: pass
+            try: _cm_cf.execute("ALTER TABLE clases_funcionales ADD COLUMN descanso_vueltas_seg INTEGER DEFAULT 60")
+            except: pass
+            _cm_cf.commit(); _cm_cf.close()
+        except: pass
+
+        def _cf_cronometria(clase_id):
+            _tc=0; _tt=0; _td=0
+            _cal=db_query("SELECT tiempo_reps FROM cf_calentamiento WHERE clase_id=?",(clase_id,))
+            for _,_cr in _cal.iterrows():
+                try: _tc+=int(str(_cr["tiempo_reps"]).replace("s","").strip())
+                except: _tc+=30
+            _cfr_c=db_query("SELECT * FROM clases_funcionales WHERE id=?",(clase_id,))
+            if not _cfr_c.empty:
+                _cfrc=_cfr_c.iloc[0].to_dict()
+                _vv=int(_cfrc.get("vueltas") or 3)
+                _dv=int(_cfrc.get("descanso_vueltas_seg") or 60)
+                _blq=db_query("SELECT id FROM cf_bloques WHERE clase_id=? LIMIT 1",(clase_id,))
+                if not _blq.empty:
+                    _bid0=int(_blq.iloc[0]["id"])
+                    _ests=db_query("SELECT tiempo_reps FROM cf_estaciones WHERE bloque_id=?",(_bid0,))
+                    for _,_er in _ests.iterrows():
+                        try:
+                            _t=str(_er["tiempo_reps"]).replace("s","").strip()
+                            _tt+=int(_t)*_vv
+                        except: _tt+=40*_vv
+                    _td=_dv*max(_vv-1,0)
+            _vc=db_query("SELECT tiempo_reps FROM cf_vuelta_calma WHERE clase_id=?",(clase_id,))
+            _tvc=0
+            for _,_vr in _vc.iterrows():
+                try: _tvc+=int(str(_vr["tiempo_reps"]).replace("s","").strip())
+                except: _tvc+=30
+            return _tc,_tt,_td,_tvc,_tc+_tt+_td+_tvc
+
+        def _cf_ej_buscador(key_prefix, solo_cuerpo=False, cols=4):
+            """Buscador de ejercicios con filtros."""
+            _bf1,_bf2,_bf3,_bf4,_bf5=st.columns([3,1,1,1,1])
+            _busq=_bf1.text_input("🔍",key=f"{key_prefix}_busq",label_visibility="collapsed",placeholder="buscar ejercicio...")
+            _f_casa=_bf2.checkbox("🏠 Casa",key=f"{key_prefix}_casa")
+            _f_gym=_bf3.checkbox("🏋️ Gym",key=f"{key_prefix}_gym")
+            _f_est=_bf4.checkbox("🤸 Estiram.",key=f"{key_prefix}_est")
+            _f_reh=_bf5.checkbox("🩺 Rehab.",key=f"{key_prefix}_reh")
+            _where=[]; _params=[]
+            if _busq.strip(): _where.append("(nombre LIKE ? OR musculo_primario LIKE ?)"); _params.extend([f"%{_busq}%",f"%{_busq}%"])
+            if solo_cuerpo: _where.append("(casa=1 OR estiramiento=1 OR rehabilitacion=1)")
+            if _f_casa: _where.append("casa=1")
+            if _f_gym: _where.append("gimnasio=1")
+            if _f_est: _where.append("estiramiento=1")
+            if _f_reh: _where.append("rehabilitacion=1")
+            _q="SELECT * FROM ejercicios"+(" WHERE "+" AND ".join(_where) if _where else "")+" ORDER BY nombre LIMIT 12"
+            return db_query(_q,tuple(_params))
+
+        def _render_ej_grid(ejs_df, btn_key_prefix, btn_label="➕"):
+            """Renderiza grid de ejercicios con botón."""
+            if ejs_df.empty: return None
+            _clicked=None
+            for _chunk in range(0,len(ejs_df),4):
+                _gcols=st.columns(4)
+                for _gi,(_,_gej) in enumerate(ejs_df.iloc[_chunk:_chunk+4].iterrows()):
+                    _gejd=_gej.to_dict()
+                    with _gcols[_gi]:
+                        with st.container(border=True):
+                            _iurl=str(_gejd.get("url_imagen","")).strip()
+                            if _iurl and _iurl!="nan":
+                                try: st.image(_iurl,use_container_width=True)
+                                except: st.markdown('<div style="text-align:center;font-size:1.5rem">🏋️</div>',unsafe_allow_html=True)
+                            else: st.markdown('<div style="text-align:center;font-size:1.5rem">🏋️</div>',unsafe_allow_html=True)
+                            st.markdown(f"<div style='font-size:.72rem;font-weight:700'>{_gejd['nombre'][:20]}</div>",unsafe_allow_html=True)
+                            if _gejd.get("musculo_primario"): st.markdown(f"<div style='font-size:.65rem;color:{GRIS_T}'>{_gejd['musculo_primario'][:18]}</div>",unsafe_allow_html=True)
+                            if st.button(btn_label,key=f"{btn_key_prefix}_{_gejd['id']}",use_container_width=True):
+                                _clicked=_gejd
+            return _clicked
+
+        _cf_edit_id=st.session_state.get("cf_edit_id")
+
+        if _cf_edit_id=="NEW" or (_cf_edit_id and _cf_edit_id!="NEW"):
+            _is_new=_cf_edit_id=="NEW"
+            if not _is_new:
+                _cf_row=db_query("SELECT * FROM clases_funcionales WHERE id=?",(_cf_edit_id,))
+                _cfr=_cf_row.iloc[0].to_dict() if not _cf_row.empty else {}
+            else:
+                _cfr={}
+
+            _eh1,_eh2=st.columns([5,1])
+            _eh1.markdown(f"<b style='color:{VERDE}'>{'➕ Nueva clase' if _is_new else '✏️ '+str(_cfr.get('nombre',''))}</b>",unsafe_allow_html=True)
+            if _eh2.button("← Volver",key="cf_volver",use_container_width=True):
+                st.session_state.pop("cf_edit_id",None); st.rerun()
+
+            # ── DATOS GENERALES ──────────────────────────────────────
+            with st.expander("📋 Datos generales",expanded=_is_new):
+                with st.form("cf_general"):
+                    _cg1,_cg2=st.columns(2)
+                    _cf_nom=_cg1.text_input("Nombre *",value=_cfr.get("nombre",""))
+                    _cf_obj=_cg2.selectbox("Objetivo",_CF_OBJETIVOS,
+                        index=_CF_OBJETIVOS.index(_cfr["objetivo"]) if _cfr.get("objetivo") in _CF_OBJETIVOS else 0)
+                    _cg3,_cg4,_cg5,_cg6=st.columns(4)
+                    _cf_dur=_cg3.selectbox("Duración (min)",_CF_DURACIONES,
+                        index=_CF_DURACIONES.index(int(_cfr["duracion_min"])) if _cfr.get("duracion_min") and int(_cfr["duracion_min"]) in _CF_DURACIONES else 2)
+                    _cf_max=_cg4.number_input("Máx. participantes",1,200,int(_cfr.get("max_participantes") or 20))
+                    _cf_vv=_cg5.number_input("Vueltas circuito",1,20,int(_cfr.get("vueltas") or 3))
+                    _cf_dv=_cg6.number_input("Desc. entre vueltas (seg)",0,300,int(_cfr.get("descanso_vueltas_seg") or 60))
+                    _cf_obs=st.text_area("Observaciones",value=_cfr.get("observaciones",""),height=50)
+                    _cf_ok=st.form_submit_button("💾 Guardar",type="primary",use_container_width=True)
+                if _cf_ok and _cf_nom.strip():
+                    _ccf=get_conn()
+                    if _is_new:
+                        _new_cf_id=_ccf.execute(
+                            "INSERT INTO clases_funcionales (nombre,objetivo,duracion_min,max_participantes,vueltas,descanso_vueltas_seg,observaciones) VALUES (?,?,?,?,?,?,?)",
+                            (_cf_nom.strip(),_cf_obj,_cf_dur,_cf_max,_cf_vv,_cf_dv,_cf_obs)).lastrowid
+                        _ccf.commit(); _ccf.close()
+                        st.session_state["cf_edit_id"]=int(_new_cf_id); db_query.clear(); st.rerun()
+                    else:
+                        _ccf.execute("UPDATE clases_funcionales SET nombre=?,objetivo=?,duracion_min=?,max_participantes=?,vueltas=?,descanso_vueltas_seg=?,observaciones=? WHERE id=?",
+                            (_cf_nom.strip(),_cf_obj,_cf_dur,_cf_max,_cf_vv,_cf_dv,_cf_obs,_cf_edit_id))
+                        _ccf.commit(); _ccf.close(); db_query.clear(); st.success("✅ Guardado"); st.rerun()
+
+            if not _is_new:
+                _cid=int(_cf_edit_id)
+
+                # Asegurar bloque único por clase
+                _blq_exist=db_query("SELECT id FROM cf_bloques WHERE clase_id=? LIMIT 1",(_cid,))
+                if _blq_exist.empty:
+                    _cb0=get_conn(); _cb0.execute("INSERT INTO cf_bloques (clase_id,nombre,orden) VALUES (?,?,1)",(_cid,"Principal")); _cb0.commit(); _cb0.close(); db_query.clear()
+                _blq_exist=db_query("SELECT id FROM cf_bloques WHERE clase_id=? LIMIT 1",(_cid,))
+                _bid_main=int(_blq_exist.iloc[0]["id"])
+
+                # ── CALENTAMIENTO ────────────────────────────────────
+                st.markdown(f"<b style='color:{VERDE}'>🔥 Calentamiento</b>",unsafe_allow_html=True)
+                _cal_df=db_query("SELECT cf.*,e.nombre as ej_nombre,e.url_imagen FROM cf_calentamiento cf LEFT JOIN ejercicios e ON e.id=cf.ejercicio_id WHERE cf.clase_id=? ORDER BY cf.orden",(_cid,))
+                if not _cal_df.empty:
+                    for _,_cr in _cal_df.iterrows():
+                        _crd=_cr.to_dict()
+                        _cc1,_cc2,_cc3=st.columns([4,2,.5])
+                        _iurl_cal=str(_crd.get("url_imagen","") or "").strip()
+                        if _iurl_cal and _iurl_cal!="nan":
+                            try: _cc1.image(_iurl_cal,width=55)
+                            except: pass
+                        _cc1.markdown(f"<span style='font-size:.88rem;font-weight:700'>{_crd.get('ej_nombre') or _crd.get('nombre_libre','—')}</span>",unsafe_allow_html=True)
+                        # Edición inline del tiempo
+                        _new_tr=_cc2.text_input("",value=str(_crd.get("tiempo_reps","30s")),key=f"cal_tr_{_crd['id']}",label_visibility="collapsed")
+                        if _new_tr!=str(_crd.get("tiempo_reps","30s")):
+                            _cu_cal=get_conn(); _cu_cal.execute("UPDATE cf_calentamiento SET tiempo_reps=? WHERE id=?",(_new_tr,_crd["id"])); _cu_cal.commit(); _cu_cal.close(); db_query.clear()
+                        if _cc3.button("🗑️",key=f"del_cal_{_crd['id']}",use_container_width=True):
+                            _cdc=get_conn(); _cdc.execute("DELETE FROM cf_calentamiento WHERE id=?",(_crd["id"],)); _cdc.commit(); _cdc.close(); db_query.clear(); st.rerun()
+
+                with st.expander("➕ Agregar ejercicio calentamiento"):
+                    _cal_ejs=_cf_ej_buscador(f"cf_cal_{_cid}",solo_cuerpo=True)
+                    _cal_tr_def=st.text_input("Tiempo/Reps por defecto","30s",key=f"cal_tr_def_{_cid}",label_visibility="collapsed")
+                    _clicked_cal=_render_ej_grid(_cal_ejs,f"add_cal_{_cid}")
+                    if _clicked_cal:
+                        _mo=get_conn().execute("SELECT COALESCE(MAX(orden),0) FROM cf_calentamiento WHERE clase_id=?",(_cid,)).fetchone()[0]
+                        _cadd=get_conn(); _cadd.execute("INSERT INTO cf_calentamiento (clase_id,ejercicio_id,orden,tiempo_reps) VALUES (?,?,?,?)",
+                            (_cid,int(_clicked_cal["id"]),_mo+1,_cal_tr_def)); _cadd.commit(); _cadd.close(); db_query.clear(); st.rerun()
+
+                # ── ESTACIONES DEL CIRCUITO ──────────────────────────
+                st.markdown(f"<b style='color:{VERDE}'>⚡ Estaciones del Circuito</b>",unsafe_allow_html=True)
+                _cfr2=db_query("SELECT * FROM clases_funcionales WHERE id=?",(_cid,)).iloc[0].to_dict()
+                st.markdown(f"<span style='font-size:.82rem;color:{GRIS_T}'>Vueltas: <b>{_cfr2.get('vueltas',3)}</b> · Descanso entre vueltas: <b>{_cfr2.get('descanso_vueltas_seg',60)}s</b></span>",unsafe_allow_html=True)
+
+                _ests_df=db_query("SELECT ce.*,e.nombre as ej_nombre,e.musculo_primario,e.url_imagen FROM cf_estaciones ce LEFT JOIN ejercicios e ON e.id=ce.ejercicio_id WHERE ce.bloque_id=? ORDER BY ce.numero",(_bid_main,))
+                if not _ests_df.empty:
+                    for _,_est in _ests_df.iterrows():
+                        _estd=_est.to_dict()
+                        _es1,_es2,_es3,_es4,_es5,_es6=st.columns([.4,1,2,1.5,1.5,.4])
+                        _es1.markdown(f"<b style='color:{VERDE};font-size:1rem'>{_estd['numero']}</b>",unsafe_allow_html=True)
+                        _iurl=str(_estd.get("url_imagen","")).strip()
+                        if _iurl and _iurl!="nan":
+                            try: _es2.image(_iurl,width=65)
+                            except: _es2.markdown("🏋️")
+                        else: _es2.markdown("🏋️")
+                        _es3.markdown(f"<span style='font-size:.85rem;font-weight:700'>{_estd.get('ej_nombre') or _estd.get('nombre_libre','—')}</span><br><span style='font-size:.75rem;color:{GRIS_T}'>{_estd.get('musculo_primario','')}</span>",unsafe_allow_html=True)
+                        _es4.markdown(f"<span style='font-size:.78rem'>{_estd.get('implemento','—')}</span>",unsafe_allow_html=True)
+                        _new_est_tr=_es5.text_input("",value=str(_estd.get("tiempo_reps","40s")),key=f"est_tr_ed_{_estd['id']}",label_visibility="collapsed")
+                        if _new_est_tr!=str(_estd.get("tiempo_reps","40s")):
+                            _cu_est=get_conn(); _cu_est.execute("UPDATE cf_estaciones SET tiempo_reps=? WHERE id=?",(_new_est_tr,_estd["id"])); _cu_est.commit(); _cu_est.close(); db_query.clear()
+                        if _es6.button("🗑️",key=f"del_est_{_estd['id']}",use_container_width=True):
+                            _cdes=get_conn(); _cdes.execute("DELETE FROM cf_estaciones WHERE id=?",(_estd["id"],)); _cdes.commit(); _cdes.close(); db_query.clear(); st.rerun()
+
+                with st.expander("➕ Agregar estación"):
+                    _est_impl=st.text_input("Implemento",key=f"est_impl_{_cid}",placeholder="barra, mancuerna, sin implemento...")
+                    _est_tr_def=st.text_input("Tiempo/Reps","40s",key=f"est_tr_def_{_cid}",label_visibility="collapsed")
+                    _est_ejs=_cf_ej_buscador(f"cf_est_{_cid}",solo_cuerpo=False)
+                    _next_num=(len(_ests_df)+1) if not _ests_df.empty else 1
+                    _clicked_est=_render_ej_grid(_est_ejs,f"add_est_{_cid}")
+                    if _clicked_est:
+                        _caest=get_conn(); _caest.execute("INSERT INTO cf_estaciones (bloque_id,numero,ejercicio_id,implemento,tiempo_reps) VALUES (?,?,?,?,?)",
+                            (_bid_main,_next_num,int(_clicked_est["id"]),_est_impl,_est_tr_def)); _caest.commit(); _caest.close(); db_query.clear(); st.rerun()
+
+                # ── VUELTA A LA CALMA ────────────────────────────────
+                st.markdown(f"<b style='color:{VERDE}'>🧘 Vuelta a la calma</b>",unsafe_allow_html=True)
+                _vc_df=db_query("SELECT cf.*,e.nombre as ej_nombre,e.url_imagen FROM cf_vuelta_calma cf LEFT JOIN ejercicios e ON e.id=cf.ejercicio_id WHERE cf.clase_id=? ORDER BY cf.orden",(_cid,))
+                if not _vc_df.empty:
+                    for _,_vcr in _vc_df.iterrows():
+                        _vcrd=_vcr.to_dict()
+                        _vc1,_vc2,_vc3,_vc4=st.columns([3,1.5,1.5,.5])
+                        _iurl_vc=str(_vcrd.get("url_imagen","") or "").strip()
+                        if _iurl_vc and _iurl_vc!="nan":
+                            try: _vc1.image(_iurl_vc,width=55)
+                            except: pass
+                        _vc1.markdown(f"<span style='font-size:.85rem;font-weight:700'>{_vcrd.get('ej_nombre') or _vcrd.get('nombre_libre','—')}</span>",unsafe_allow_html=True)
+                        _vc2.markdown(f"<span style='font-size:.78rem;color:{AZUL}'>{_vcrd.get('tipo','')}</span>",unsafe_allow_html=True)
+                        _new_vc_tr=_vc3.text_input("",value=str(_vcrd.get("tiempo_reps","30s")),key=f"vc_tr_{_vcrd['id']}",label_visibility="collapsed")
+                        if _new_vc_tr!=str(_vcrd.get("tiempo_reps","30s")):
+                            _cu_vc=get_conn(); _cu_vc.execute("UPDATE cf_vuelta_calma SET tiempo_reps=? WHERE id=?",(_new_vc_tr,_vcrd["id"])); _cu_vc.commit(); _cu_vc.close(); db_query.clear()
+                        if _vc4.button("🗑️",key=f"del_vc_{_vcrd['id']}",use_container_width=True):
+                            _cdvc=get_conn(); _cdvc.execute("DELETE FROM cf_vuelta_calma WHERE id=?",(_vcrd["id"],)); _cdvc.commit(); _cdvc.close(); db_query.clear(); st.rerun()
+
+                with st.expander("➕ Agregar vuelta a la calma"):
+                    _vc_tipo=st.selectbox("Tipo",_CF_TIPOS_CALMA,key=f"cf_vc_tipo_{_cid}")
+                    _vc_ejs=_cf_ej_buscador(f"cf_vc_{_cid}",solo_cuerpo=True)
+                    _vc_tr_def=st.text_input("Tiempo","30s",key=f"vc_tr_def_{_cid}",label_visibility="collapsed")
+                    _clicked_vc=_render_ej_grid(_vc_ejs,f"add_vc_{_cid}")
+                    if _clicked_vc:
+                        _mo_vc=get_conn().execute("SELECT COALESCE(MAX(orden),0) FROM cf_vuelta_calma WHERE clase_id=?",(_cid,)).fetchone()[0]
+                        _cavc=get_conn(); _cavc.execute("INSERT INTO cf_vuelta_calma (clase_id,ejercicio_id,orden,tipo,tiempo_reps) VALUES (?,?,?,?,?)",
+                            (_cid,int(_clicked_vc["id"]),_mo_vc+1,_vc_tipo,_vc_tr_def)); _cavc.commit(); _cavc.close(); db_query.clear(); st.rerun()
+
+                # ── BOTÓN GUARDAR CAMBIOS ────────────────────────────
+                st.divider()
+                if st.button("💾 Guardar clase funcional",key=f"cf_save_{_cid}",type="primary",use_container_width=True):
+                    st.success("✅ Clase funcional guardada correctamente")
+
+                # ── CRONOMETRÍA ──────────────────────────────────────
+                st.markdown(f"<b style='color:{VERDE}'>⏱️ Cronometría automática</b>",unsafe_allow_html=True)
+                _tc,_tt,_td,_tvc,_ttotal=_cf_cronometria(_cid)
+                _cr1,_cr2,_cr3,_cr4,_cr5=st.columns(5)
+                _cr1.metric("🔥 Calentamiento",f"{_tc//60}m {_tc%60:02d}s")
+                _cr2.metric("💪 Trabajo",f"{_tt//60}m {_tt%60:02d}s")
+                _cr3.metric("😮‍💨 Descanso",f"{_td//60}m {_td%60:02d}s")
+                _cr4.metric("🧘 Vuelta calma",f"{_tvc//60}m {_tvc%60:02d}s")
+                _cf_dur_obj=int(_cfr2.get("duracion_min",60))*60
+                _delta=_ttotal-_cf_dur_obj
+                _cr5.metric("⏱️ Total",f"{_ttotal//60}m {_ttotal%60:02d}s",
+                    delta=f"{'+' if _delta>0 else ''}{_delta//60}m vs obj",delta_color="inverse")
+
+                # ── PDF ──────────────────────────────────────────────
+                if st.button("📄 Exportar PDF",key=f"cf_pdf_{_cid}",use_container_width=True) and REPORTLAB_OK:
+                    _pb_cf=io.BytesIO()
+                    _pd_cf=SimpleDocTemplate(_pb_cf,pagesize=A4,leftMargin=1.5*cm,rightMargin=1.5*cm,topMargin=1.2*cm,bottomMargin=1.2*cm)
+                    _aw_cf=A4[0]-3*cm; _st_cf=[]
+                    _sHcf=ParagraphStyle("cfH",fontName="Helvetica-Bold",fontSize=14,textColor=rl_colors.HexColor("#6DBE45"),spaceAfter=2)
+                    _sScf=ParagraphStyle("cfS",fontName="Helvetica-Bold",fontSize=11,textColor=rl_colors.HexColor("#6DBE45"),spaceBefore=8,spaceAfter=3)
+                    _sNcf=ParagraphStyle("cfN",fontName="Helvetica",fontSize=9,textColor=rl_colors.black,leading=12)
+                    _sGcf=ParagraphStyle("cfG",fontName="Helvetica-Bold",fontSize=9,textColor=rl_colors.white,alignment=TA_CENTER)
+                    # Logo en encabezado
+                    _logo_cf=None
+                    try:
+                        from PIL import Image as _PIL_cf
+                        _lp_cf_neg=os.path.join(BASE_DIR,"LOGO_PUTÚ_ACTIVO_Fondo_negro.jpg")
+                        _lp_cf=_lp_cf_neg if os.path.exists(_lp_cf_neg) else os.path.join(BASE_DIR,"logo.png")
+                        if os.path.exists(_lp_cf):
+                            _im_cf=_PIL_cf.open(_lp_cf); _iw_cf,_ih_cf=_im_cf.size
+                            _logo_cf=RLImage(_lp_cf,width=_iw_cf*(1.4*cm/_ih_cf),height=1.4*cm)
+                    except: pass
+                    _hdr_cf=Table([[_logo_cf or "",Paragraph(f"PUTÚ ACTIVO — Clase Funcional: {_cfr2['nombre']}",_sHcf)]],
+                        colWidths=[2.2*cm,_aw_cf-2.2*cm])
+                    _hdr_cf.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"MIDDLE"),("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0),("TOPPADDING",(0,0),(-1,-1),0),("BOTTOMPADDING",(0,0),(-1,-1),0)]))
+                    _st_cf.append(_hdr_cf)
+                    _st_cf.append(Paragraph(f"Objetivo: {_cfr2.get('objetivo','—')} · Duración: {_cfr2.get('duracion_min','—')} min · Participantes: {_cfr2.get('max_participantes','—')} · Vueltas: {_cfr2.get('vueltas',3)} · Desc.vueltas: {_cfr2.get('descanso_vueltas_seg',60)}s",_sNcf))
+                    _st_cf.append(Spacer(1,0.2*cm))
+                    # Calentamiento
+                    _cal_p=db_query("SELECT cf.*,e.nombre as ej_nombre,e.url_imagen FROM cf_calentamiento cf LEFT JOIN ejercicios e ON e.id=cf.ejercicio_id WHERE cf.clase_id=? ORDER BY cf.orden",(_cid,))
+                    if not _cal_p.empty:
+                        _st_cf.append(Paragraph("🔥 CALENTAMIENTO",_sScf))
+                        _cal_hdr=[[Paragraph(h,_sGcf) for h in ["Ejercicio","Tiempo/Reps"]]]
+                        _cal_rows=[[Paragraph(str(r.get("ej_nombre") or "—"),_sNcf),Paragraph(str(r.get("tiempo_reps","")),_sNcf)] for _,r in _cal_p.iterrows()]
+                        _tcal=Table(_cal_hdr+_cal_rows,colWidths=[_aw_cf*0.7,_aw_cf*0.3])
+                        _tcal.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),rl_colors.HexColor("#1A1A1A")),("ROWBACKGROUNDS",(0,1),(-1,-1),[rl_colors.white,rl_colors.HexColor("#F5F5F5")]),("GRID",(0,0),(-1,-1),0.3,rl_colors.HexColor("#DDD")),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),("LEFTPADDING",(0,0),(-1,-1),6)]))
+                        _st_cf.append(_tcal)
+                    # Estaciones con imagen
+                    _ests_p=db_query("SELECT ce.*,e.nombre as ej_nombre,e.musculo_primario,e.url_imagen,e.ejecucion FROM cf_estaciones ce LEFT JOIN ejercicios e ON e.id=ce.ejercicio_id WHERE ce.bloque_id=? ORDER BY ce.numero",(_bid_main,))
+                    if not _ests_p.empty:
+                        _st_cf.append(Paragraph(f"⚡ CIRCUITO — {_cfr2.get('vueltas',3)} vueltas · Descanso: {_cfr2.get('descanso_vueltas_seg',60)}s entre vueltas",_sScf))
+                        # Encabezado de tabla 2 columnas
+                        _est_hdr2=[[
+                            Paragraph("#",_sGcf),Paragraph("",_sGcf),Paragraph("Ejercicio",_sGcf),Paragraph("Tpo",_sGcf),
+                            Paragraph("#",_sGcf),Paragraph("",_sGcf),Paragraph("Ejercicio",_sGcf),Paragraph("Tpo",_sGcf),
+                        ]]
+                        _est_rows2=[]
+                        _ests_list=list(_ests_p.iterrows())
+                        _cw=_aw_cf/2
+                        for _pi in range(0,len(_ests_list),2):
+                            _row2=[]
+                            for _pj in [_pi,_pi+1]:
+                                if _pj<len(_ests_list):
+                                    _,_ep=_ests_list[_pj]; _epd=_ep.to_dict()
+                                    _img_cell2=""
+                                    try:
+                                        _iurl2=str(_epd.get("url_imagen","")).strip()
+                                        if _iurl2 and _iurl2!="nan":
+                                            import urllib.request as _ur2
+                                            _ir=_ur2.urlopen(_iurl2,timeout=3)
+                                            _img_cell2=RLImage(io.BytesIO(_ir.read()),width=1.5*cm,height=1.5*cm)
+                                    except: pass
+                                    _row2+=[
+                                        Paragraph(f"<b>{_epd.get('numero','')}</b>",_sNcf),
+                                        _img_cell2 or Paragraph("",_sNcf),
+                                        Paragraph(f"<b>{str(_epd.get('ej_nombre') or '—')[:25]}</b><br/>{str(_epd.get('musculo_primario',''))[:15]}",_sNcf),
+                                        Paragraph(str(_epd.get("tiempo_reps","")),_sNcf),
+                                    ]
+                                else:
+                                    _row2+=[Paragraph("",_sNcf),Paragraph("",_sNcf),Paragraph("",_sNcf),Paragraph("",_sNcf)]
+                            _est_rows2.append(_row2)
+                        _test2=Table(_est_hdr2+_est_rows2,
+                            colWidths=[_cw*0.07,1.6*cm,_cw*0.6,_cw*0.2,_cw*0.07,1.6*cm,_cw*0.6,_cw*0.2])
+                        _test2.setStyle(TableStyle([
+                            ("BACKGROUND",(0,0),(-1,0),rl_colors.HexColor("#1A1A1A")),
+                            ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+                            ("ROWBACKGROUNDS",(0,1),(-1,-1),[rl_colors.white,rl_colors.HexColor("#F5F5F5")]),
+                            ("GRID",(0,0),(-1,-1),0.3,rl_colors.HexColor("#DDD")),
+                            ("LINEAFTER",(3,0),(3,-1),1,rl_colors.HexColor("#AAA")),
+                            ("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3),
+                            ("LEFTPADDING",(0,0),(-1,-1),4),
+                        ]))
+                        _st_cf.append(_test2)
+                    # Vuelta a la calma
+                    _vc_p=db_query("SELECT cf.*,e.nombre as ej_nombre,e.url_imagen FROM cf_vuelta_calma cf LEFT JOIN ejercicios e ON e.id=cf.ejercicio_id WHERE cf.clase_id=? ORDER BY cf.orden",(_cid,))
+                    if not _vc_p.empty:
+                        _st_cf.append(Paragraph("🧘 VUELTA A LA CALMA",_sScf))
+                        _vc_hdr=[[Paragraph(h,_sGcf) for h in ["Ejercicio","Tipo","Tiempo"]]]
+                        _vc_rows=[[Paragraph(str(r.get("ej_nombre") or "—"),_sNcf),Paragraph(str(r.get("tipo","")),_sNcf),Paragraph(str(r.get("tiempo_reps","")),_sNcf)] for _,r in _vc_p.iterrows()]
+                        _tvc2=Table(_vc_hdr+_vc_rows,colWidths=[_aw_cf*0.55,_aw_cf*0.25,_aw_cf*0.2])
+                        _tvc2.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),rl_colors.HexColor("#1A1A1A")),("ROWBACKGROUNDS",(0,1),(-1,-1),[rl_colors.white,rl_colors.HexColor("#F5F5F5")]),("GRID",(0,0),(-1,-1),0.3,rl_colors.HexColor("#DDD")),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),("LEFTPADDING",(0,0),(-1,-1),6)]))
+                        _st_cf.append(_tvc2)
+                    # Cronometría
+                    _st_cf.append(Paragraph("⏱️ CRONOMETRÍA",_sScf))
+                    _tcr=Table([["Calentamiento","Trabajo","Descanso","Vuelta calma","TOTAL"],
+                        [f"{_tc//60}m{_tc%60:02d}s",f"{_tt//60}m{_tt%60:02d}s",f"{_td//60}m{_td%60:02d}s",f"{_tvc//60}m{_tvc%60:02d}s",f"{_ttotal//60}m{_ttotal%60:02d}s"]],
+                        colWidths=[_aw_cf/5]*5)
+                    _tcr.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),rl_colors.HexColor("#1A1A1A")),("TEXTCOLOR",(0,0),(-1,0),rl_colors.white),("FONTNAME",(0,0),(-1,-1),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),9),("ALIGN",(0,0),(-1,-1),"CENTER"),("BACKGROUND",(4,1),(4,1),rl_colors.HexColor("#6DBE45")),("GRID",(0,0),(-1,-1),0.3,rl_colors.HexColor("#DDD")),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)]))
+                    _st_cf.append(_tcr)
+                    _pd_cf.build(_st_cf)
+                    st.download_button("⬇️ Descargar PDF",_pb_cf.getvalue(),f"clase_{_cfr2['nombre'].replace(' ','_')}.pdf","application/pdf",key=f"dl_cf_{_cid}",use_container_width=True)
+
+        else:
+            # ── LISTA DE CLASES ──────────────────────────────────────
+            _cf_list=db_query("SELECT * FROM clases_funcionales ORDER BY fecha_creacion DESC")
+            if st.button("➕ Nueva clase funcional",key="cf_new",type="primary",use_container_width=True):
+                st.session_state["cf_edit_id"]="NEW"; st.rerun()
+            st.divider()
+            if _cf_list.empty:
+                st.markdown('<div class="info-box">Sin clases funcionales. Presiona ➕ Nueva clase.</div>',unsafe_allow_html=True)
+            else:
+                for _,_cfr3 in _cf_list.iterrows():
+                    _cfrd=_cfr3.to_dict()
+                    _tc3,_tt3,_td3,_tvc3,_tot3=_cf_cronometria(int(_cfrd["id"]))
+                    _cl1,_cl2,_cl3,_cl4,_cl5,_cl6=st.columns([3,1.2,1.2,.8,.8,.8])
+                    _cl1.markdown(f"<b style='color:{VERDE}'>{_cfrd['nombre']}</b> <span style='color:{GRIS_T};font-size:.8rem'>· {_cfrd.get('objetivo','—')} · {_cfrd.get('duracion_min','—')} min · {_cfrd.get('vueltas',3)} vueltas</span>",unsafe_allow_html=True)
+                    _cl2.markdown(f"<span style='font-size:.8rem;color:{GRIS_T}'>⏱️ {_tot3//60} min calc.</span>",unsafe_allow_html=True)
+                    _cl3.markdown(f"<span style='font-size:.8rem;color:{GRIS_T}'>👥 {_cfrd.get('max_participantes','—')}</span>",unsafe_allow_html=True)
+                    if _cl4.button("✏️",key=f"cf_ed_{_cfrd['id']}",use_container_width=True,help="Editar"):
+                        st.session_state["cf_edit_id"]=int(_cfrd["id"]); st.rerun()
+                    if _cl5.button("📄",key=f"cf_pdf_list_{_cfrd['id']}",use_container_width=True,help="Exportar PDF"):
+                        st.session_state[f"cf_pdf_show_{_cfrd['id']}"]=True
+                    if st.session_state.get(f"cf_pdf_show_{_cfrd['id']}") and REPORTLAB_OK:
+                        _cid_l=int(_cfrd["id"])
+                        _cfr2_l=db_query("SELECT * FROM clases_funcionales WHERE id=?",(_cid_l,))
+                        if not _cfr2_l.empty:
+                            _cfr2_l=_cfr2_l.iloc[0].to_dict()
+                            _blq_l=db_query("SELECT id FROM cf_bloques WHERE clase_id=? LIMIT 1",(_cid_l,))
+                            _bid_l=int(_blq_l.iloc[0]["id"]) if not _blq_l.empty else None
+                            _tc_l,_tt_l,_td_l,_tvc_l,_tot_l=_cf_cronometria(_cid_l)
+                            _pb_l=io.BytesIO()
+                            _pd_l=SimpleDocTemplate(_pb_l,pagesize=A4,leftMargin=1.5*cm,rightMargin=1.5*cm,topMargin=1.2*cm,bottomMargin=1.2*cm)
+                            _aw_l=A4[0]-3*cm; _st_l=[]
+                            _sHl=ParagraphStyle("lH",fontName="Helvetica-Bold",fontSize=14,textColor=rl_colors.HexColor("#6DBE45"),spaceAfter=2)
+                            _sSl=ParagraphStyle("lS",fontName="Helvetica-Bold",fontSize=11,textColor=rl_colors.HexColor("#6DBE45"),spaceBefore=8,spaceAfter=3)
+                            _sNl=ParagraphStyle("lN",fontName="Helvetica",fontSize=9,textColor=rl_colors.black,leading=12)
+                            _sGl=ParagraphStyle("lG",fontName="Helvetica-Bold",fontSize=9,textColor=rl_colors.white,alignment=TA_CENTER)
+                            # Logo
+                            _logo_l=None
+                            try:
+                                from PIL import Image as _PIL_l
+                                _lp_l=os.path.join(BASE_DIR,"LOGO_PUTÚ_ACTIVO_Fondo_negro.jpg")
+                                if not os.path.exists(_lp_l): _lp_l=os.path.join(BASE_DIR,"logo.png")
+                                if os.path.exists(_lp_l):
+                                    _im_l=_PIL_l.open(_lp_l); _iw_l,_ih_l=_im_l.size
+                                    _logo_l=RLImage(_lp_l,width=_iw_l*(1.4*cm/_ih_l),height=1.4*cm)
+                            except: pass
+                            _hdr_l=Table([[_logo_l or "",Paragraph(f"PUTÚ ACTIVO — Clase Funcional: {_cfr2_l['nombre']}",_sHl)]],colWidths=[2.2*cm,_aw_l-2.2*cm])
+                            _hdr_l.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"MIDDLE"),("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0),("TOPPADDING",(0,0),(-1,-1),0),("BOTTOMPADDING",(0,0),(-1,-1),0)]))
+                            _st_l.append(_hdr_l)
+                            _st_l.append(Paragraph(f"Objetivo: {_cfr2_l.get('objetivo','—')} · Duración: {_cfr2_l.get('duracion_min','—')} min · Participantes: {_cfr2_l.get('max_participantes','—')} · Vueltas: {_cfr2_l.get('vueltas',3)} · Desc.vueltas: {_cfr2_l.get('descanso_vueltas_seg',60)}s",_sNl))
+                            _st_l.append(Spacer(1,0.2*cm))
+                            # Calentamiento
+                            _cal_l=db_query("SELECT cf.*,e.nombre as ej_nombre FROM cf_calentamiento cf LEFT JOIN ejercicios e ON e.id=cf.ejercicio_id WHERE cf.clase_id=? ORDER BY cf.orden",(_cid_l,))
+                            if not _cal_l.empty:
+                                _st_l.append(Paragraph("🔥 CALENTAMIENTO",_sSl))
+                                _tl_cal=Table([[Paragraph(h,_sGl) for h in ["Ejercicio","Tiempo"]]]+[[Paragraph(str(r.get("ej_nombre") or "—"),_sNl),Paragraph(str(r.get("tiempo_reps","")),_sNl)] for _,r in _cal_l.iterrows()],colWidths=[_aw_l*0.75,_aw_l*0.25])
+                                _tl_cal.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),rl_colors.HexColor("#1A1A1A")),("ROWBACKGROUNDS",(0,1),(-1,-1),[rl_colors.white,rl_colors.HexColor("#F5F5F5")]),("GRID",(0,0),(-1,-1),0.3,rl_colors.HexColor("#DDD")),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),("LEFTPADDING",(0,0),(-1,-1),6)]))
+                                _st_l.append(_tl_cal)
+                            # Estaciones 2 columnas
+                            if _bid_l:
+                                _ests_l=db_query("SELECT ce.*,e.nombre as ej_nombre,e.musculo_primario,e.url_imagen FROM cf_estaciones ce LEFT JOIN ejercicios e ON e.id=ce.ejercicio_id WHERE ce.bloque_id=? ORDER BY ce.numero",(_bid_l,))
+                                if not _ests_l.empty:
+                                    _st_l.append(Paragraph(f"⚡ CIRCUITO — {_cfr2_l.get('vueltas',3)} vueltas · Descanso: {_cfr2_l.get('descanso_vueltas_seg',60)}s entre vueltas",_sSl))
+                                    _cw_l=_aw_l/2
+                                    _est_hdr_l=[[Paragraph("#",_sGl),Paragraph("",_sGl),Paragraph("Ejercicio",_sGl),Paragraph("Tpo",_sGl),Paragraph("#",_sGl),Paragraph("",_sGl),Paragraph("Ejercicio",_sGl),Paragraph("Tpo",_sGl)]]
+                                    _est_rows_l=[]; _ests_list_l=list(_ests_l.iterrows())
+                                    for _pi_l in range(0,len(_ests_list_l),2):
+                                        _row_l=[]
+                                        for _pj_l in [_pi_l,_pi_l+1]:
+                                            if _pj_l<len(_ests_list_l):
+                                                _,_ep_l=_ests_list_l[_pj_l]; _epd_l=_ep_l.to_dict()
+                                                _img_l=""
+                                                try:
+                                                    _iu_l=str(_epd_l.get("url_imagen","")).strip()
+                                                    if _iu_l and _iu_l!="nan":
+                                                        import urllib.request as _ur_l
+                                                        _ir_l=_ur_l.urlopen(_iu_l,timeout=3)
+                                                        _img_l=RLImage(io.BytesIO(_ir_l.read()),width=1.5*cm,height=1.5*cm)
+                                                except: pass
+                                                _row_l+=[Paragraph(f"<b>{_epd_l.get('numero','')}</b>",_sNl),_img_l or Paragraph("",_sNl),Paragraph(f"<b>{str(_epd_l.get('ej_nombre') or '—')[:25]}</b><br/>{str(_epd_l.get('musculo_primario',''))[:15]}",_sNl),Paragraph(str(_epd_l.get("tiempo_reps","")),_sNl)]
+                                            else:
+                                                _row_l+=[Paragraph("",_sNl),Paragraph("",_sNl),Paragraph("",_sNl),Paragraph("",_sNl)]
+                                        _est_rows_l.append(_row_l)
+                                    _tl_est=Table(_est_hdr_l+_est_rows_l,colWidths=[_cw_l*0.07,1.6*cm,_cw_l*0.6,_cw_l*0.2,_cw_l*0.07,1.6*cm,_cw_l*0.6,_cw_l*0.2])
+                                    _tl_est.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),rl_colors.HexColor("#1A1A1A")),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("ROWBACKGROUNDS",(0,1),(-1,-1),[rl_colors.white,rl_colors.HexColor("#F5F5F5")]),("GRID",(0,0),(-1,-1),0.3,rl_colors.HexColor("#DDD")),("LINEAFTER",(3,0),(3,-1),1,rl_colors.HexColor("#AAA")),("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3),("LEFTPADDING",(0,0),(-1,-1),4)]))
+                                    _st_l.append(_tl_est)
+                            # Cronometría
+                            _st_l.append(Paragraph("⏱️ CRONOMETRÍA",_sSl))
+                            _tl_cr=Table([["Calentamiento","Trabajo","Descanso","Vuelta calma","TOTAL"],[f"{_tc_l//60}m{_tc_l%60:02d}s",f"{_tt_l//60}m{_tt_l%60:02d}s",f"{_td_l//60}m{_td_l%60:02d}s",f"{_tvc_l//60}m{_tvc_l%60:02d}s",f"{_tot_l//60}m{_tot_l%60:02d}s"]],colWidths=[_aw_l/5]*5)
+                            _tl_cr.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),rl_colors.HexColor("#1A1A1A")),("TEXTCOLOR",(0,0),(-1,0),rl_colors.white),("FONTNAME",(0,0),(-1,-1),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),9),("ALIGN",(0,0),(-1,-1),"CENTER"),("BACKGROUND",(4,1),(4,1),rl_colors.HexColor("#6DBE45")),("GRID",(0,0),(-1,-1),0.3,rl_colors.HexColor("#DDD")),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)]))
+                            _st_l.append(_tl_cr)
+                            _pd_l.build(_st_l)
+                            st.download_button("⬇️ Descargar PDF",_pb_l.getvalue(),f"clase_{_cfr2_l['nombre'].replace(' ','_')}.pdf","application/pdf",key=f"dl_cf_list_{_cid_l}",use_container_width=True)
+                            if st.button("✕ Cerrar",key=f"cf_pdf_close_{_cid_l}"):
+                                st.session_state.pop(f"cf_pdf_show_{_cid_l}",None); st.rerun()
+                    if _cl6.button("🗑️",key=f"cf_del_{_cfrd['id']}",use_container_width=True):
+                        st.session_state[f"cf_del_c_{_cfrd['id']}"]=True
+                    if st.session_state.get(f"cf_del_c_{_cfrd['id']}"):
+                        _cd1,_cd2=st.columns(2)
+                        if _cd1.button("✅ Sí, eliminar",key=f"cf_del_yes_{_cfrd['id']}"):
+                            _cfd=get_conn(); _cfd.execute("DELETE FROM clases_funcionales WHERE id=?",(int(_cfrd["id"]),)); _cfd.commit(); _cfd.close(); db_query.clear(); st.session_state.pop(f"cf_del_c_{_cfrd['id']}",None); st.rerun()
+                        if _cd2.button("❌ Cancelar",key=f"cf_del_no_{_cfrd['id']}"):
+                            st.session_state.pop(f"cf_del_c_{_cfrd['id']}",None); st.rerun()
+
 elif pagina=="⚙️ Base de Datos":
     st.markdown('<div class="section-header">⚙️ Base de Datos Unificada</div>',unsafe_allow_html=True)
-    if st.button("← Volver",key="db_volver"): st.session_state._goto="🏠 Dashboard"; st.rerun()
+    if st.button("← Volver",key="db_volver"): st.rerun()
     _es_admin_bd=st.session_state.get("rol","").lower() in ("admin","administrador")
     if _es_admin_bd:
         tim,tex,tad,tusr,tlog=st.tabs(["📥 Importar","📤 Exportar","🗄️ Administración","👥 Usuarios","📋 Log"])
