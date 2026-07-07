@@ -939,8 +939,8 @@ if not sesion_valida() and not st.session_state.modo:
         box-shadow:0 0 18px 2px {AZUL}55 !important;
     }}
     div[data-testid="stHorizontalBlock"] > div:nth-child(4) button {{
-        background:#1A1A1A !important;
-        border:4px solid #AAAAAA !important;
+        background:#1A0000 !important;
+        border:4px solid {ROJO} !important;
         border-radius:16px !important;
         color:{BLANCO} !important;
         font-size:2rem !important;
@@ -949,7 +949,7 @@ if not sesion_valida() and not st.session_state.modo:
         height:auto !important;
         white-space:normal !important;
         line-height:1.6 !important;
-        box-shadow:0 0 18px 2px #AAAAAA55 !important;
+        box-shadow:0 0 18px 2px {ROJO}55 !important;
     }}
     </style>""",unsafe_allow_html=True)
     _,bc1,bc2,bc3,_ = st.columns([1,1.4,1.4,1.4,1])
@@ -1043,7 +1043,52 @@ if st.session_state.modo == "micuenta" and st.session_state.get("cliente_loguead
         st.session_state.update({"cliente_logueado":False,"cliente_rut":"","modo":""}); st.rerun()
     st.markdown("---")
     # Tabs solo lectura
-    _tmc1,_tmc2,_tmc3,_tmc4=st.tabs(["💪 Mi Rutina","📏 Evaluaciones","💳 Pagos","🥗 Nutrición"])
+    _tmc0,_tmc1,_tmc2,_tmc3,_tmc4=st.tabs(["👤 Mi Perfil","💪 Mi Rutina","📏 Evaluaciones","💳 Pagos","🥗 Nutrición"])
+
+    with _tmc0:
+        # Foto + datos personales + membresía
+        _mp1,_mp2=st.columns([1,3])
+        with _mp1:
+            _fp_mc=sv(_r_mc,"foto_path")
+            if _fp_mc and os.path.exists(_fp_mc):
+                st.image(_fp_mc,use_container_width=True)
+            else:
+                _qr_mc=generar_qr_b64(f"PUTU|{_rut_mc}|{sv(_r_mc,'nombre')}")
+                st.markdown(f'<img src="data:image/png;base64,{_qr_mc}" style="width:100%;border-radius:8px;border:1px solid #2E2E2E">',unsafe_allow_html=True)
+                st.markdown(f'<div style="font-size:.65rem;color:{GRIS_T};text-align:center">QR Asistencia</div>',unsafe_allow_html=True)
+        with _mp2:
+            _col_mc_sx="#E91E8C" if sv(_r_mc,"sexo").lower()=="femenino" else AZUL
+            st.markdown(f'''<div style="border-left:4px solid {_col_mc_sx};padding-left:14px;">
+                <div style="font-size:1.3rem;font-weight:900;color:{_col_mc_sx}">{sv(_r_mc,"nombre")}</div>
+                <div style="color:{GRIS_T};font-size:.88rem;margin-top:3px">
+                    <b>{_rut_mc}</b> · {sv(_r_mc,"sexo")} · {sv(_r_mc,"edad")} años
+                </div>
+                <div style="color:{GRIS_T};font-size:.85rem">📱 {fmt_cel(sv(_r_mc,"celular"))} · ✉️ {sv(_r_mc,"email")}</div>
+                <div style="color:{GRIS_T};font-size:.85rem">📍 {sv(_r_mc,"direccion")}</div>
+            </div>''',unsafe_allow_html=True)
+            st.markdown("")
+            # Membresía
+            _venc_mc=sv(_r_mc,"fecha_vencimiento")
+            _dvenc_mc=dias_para_vencer(_venc_mc)
+            _col_venc="#E85050" if (_dvenc_mc is not None and _dvenc_mc<0) else VERDE
+            st.markdown(f'''<div style="background:{GRIS2};border-radius:9px;padding:12px 16px;">
+                <b style="color:{AZUL}">💳 Membresía</b><br>
+                <span style="font-size:.88rem">Plan: <b>{sv(_r_mc,"tipo_plan")}</b> · {sv(_r_mc,"frecuencia")} · {sv(_r_mc,"horario")}</span><br>
+                <span style="font-size:.88rem">Estado: <b style="color:{VERDE if sv(_r_mc,"estado").lower()=="activo" else ROJO}">{sv(_r_mc,"estado")}</b></span><br>
+                <span style="font-size:.88rem">Vencimiento: <b style="color:{_col_venc}">{fmt_fecha(_venc_mc)}</b></span><br>
+                <span style="font-size:.88rem">Objetivo: {sv(_r_mc,"objetivo")} · Nivel: {sv(_r_mc,"nivel")}</span>
+            </div>''',unsafe_allow_html=True)
+        st.markdown("")
+        # Resumen de registros
+        _n_eval_mc=len(db_query("SELECT id FROM evaluaciones WHERE rut=?",(_rut_mc,)))
+        _n_pago_mc=len(db_query("SELECT id FROM pagos WHERE rut=?",(_rut_mc,)))
+        _tiene_rut_mc=not db_query("SELECT id FROM rutinas WHERE cliente_rut=? AND activa=1",(_rut_mc,)).empty
+        _tiene_nutr_mc=not db_query("SELECT id FROM planes_nutri WHERE cliente_rut=? AND activo=1",(_rut_mc,)).empty
+        _rs1,_rs2,_rs3,_rs4=st.columns(4)
+        _rs1.metric("💪 Rutina","✅ Sí" if _tiene_rut_mc else "❌ No")
+        _rs2.metric("📏 Evaluaciones",str(_n_eval_mc))
+        _rs3.metric("💳 Pagos",str(_n_pago_mc))
+        _rs4.metric("🥗 Nutrición","✅ Sí" if _tiene_nutr_mc else "❌ No")
 
     with _tmc1:
         _rut_mc_r=db_query("SELECT * FROM rutinas WHERE cliente_rut=? AND activa=1 ORDER BY id DESC LIMIT 1",(_rut_mc,))
@@ -1274,6 +1319,12 @@ if st.session_state.modo == "cliente":
                     if _cs2.button("🚪",key=f"cli_sal_s_{a.get('id',_si)}",use_container_width=True,help="Marcar salida"):
                         _hs=datetime.now().strftime("%H:%M")
                         _cs3=get_conn(); _cs3.execute("UPDATE asistencia SET hora_salida=? WHERE id=?",(_hs,int(a["id"]))); _cs3.commit(); _cs3.close()
+                        # Mostrar mensaje de despedida igual que al marcar salida por RUT
+                        _cli_sal=db_query("SELECT * FROM clientes WHERE UPPER(rut)=?",(str(a.get("rut","")).upper(),))
+                        if not _cli_sal.empty:
+                            _c_sal=_cli_sal.iloc[0]
+                            st.session_state.asist_ok={"ok":True,"nombre":_c_sal["nombre"],"rut":_c_sal["rut"],"plan":_c_sal.get("tipo_plan",""),"hora":_hs,"tipo":"salida","emoji":"👋"}
+                            st.session_state["asist_ok_time"]=__import__("time").time()
                         st.rerun()
                     if _cf2.button("👤",key=f"cli_ficha_s_{a.get('id',_si)}",use_container_width=True,help="Ver ficha"):
                         _rut_sala=str(a.get("rut",""))
@@ -1286,24 +1337,32 @@ if st.session_state.modo == "cliente":
                 ao=st.session_state.asist_ok
                 col_r=VERDE if (ao["ok"] and ao.get("tipo")=="ingreso") else AZUL if (ao["ok"] and ao.get("tipo")=="salida") else ROJO
                 emoji=ao.get("emoji","✅") if ao["ok"] else "❌"
-                msg_r="✅ ¡Ingreso registrado! 💪" if (ao.get("tipo")=="ingreso" and ao["ok"]) else ("🚪 ¡Salida registrada! 👋" if ao["ok"] else ao.get("msg","Error"))
-                st.markdown(f'''<div style="background:{col_r}22;border:2px solid {col_r};border-radius:12px;
-                    padding:12px;text-align:center;margin-top:8px;">
-                  <div style="font-size:1.6rem">{emoji}</div>
-                  <div style="font-size:1.2rem;font-weight:900;color:{col_r};margin:4px 0">{ao["nombre"]}</div>
-                  <div style="color:{GRIS_T};font-size:.85rem">{ao.get("plan","")} · {ao.get("hora","")}</div>
-                  <div style="color:{col_r};font-weight:700;margin-top:4px">{msg_r}</div>
+                if ao.get("tipo")=="ingreso" and ao["ok"]:
+                    msg_r=f"¡Bienvenido/a, {ao['nombre']}! 💪 ¡A entrenar!"
+                elif ao.get("tipo")=="salida" and ao["ok"]:
+                    msg_r=f"¡Hasta pronto, {ao['nombre']}! 👋 ¡Excelente trabajo!"
+                else:
+                    msg_r=ao.get("msg","Error")
+                _msg_placeholder=st.empty()
+                _msg_placeholder.markdown(f'''<div style="background:{col_r}22;border:3px solid {col_r};border-radius:16px;
+                    padding:24px;text-align:center;margin-top:8px;">
+                  <div style="font-size:3rem">{emoji}</div>
+                  <div style="font-size:1.6rem;font-weight:900;color:{col_r};margin:8px 0">{ao["nombre"]}</div>
+                  <div style="color:{GRIS_T};font-size:.92rem">{ao.get("plan","")} · {ao.get("hora","")}</div>
+                  <div style="color:{col_r};font-weight:700;font-size:1.1rem;margin-top:8px">{msg_r}</div>
                 </div>''',unsafe_allow_html=True)
-                # Ver ficha directo después de marcar
-                if ao["ok"]:
-                    _rut_marcado=ao.get("rut","")
-                    if not _rut_marcado:
-                        _cli_buscado=db_query("SELECT rut FROM clientes WHERE nombre=?",(ao["nombre"],))
-                        if not _cli_buscado.empty: _rut_marcado=_cli_buscado.iloc[0]["rut"]
-                    if _rut_marcado and st.button("👤 Ver mi ficha",key="cli_ver_ficha_post",use_container_width=True):
-                        st.session_state.rut_cliente=_rut_marcado.upper()
-                        st.session_state["_modo_cli_override"]="🔍  Mi ficha"
-                        st.rerun()
+                # Mantener 10 segundos y limpiar automáticamente
+                import time as _time_asist
+                _t_asist=st.session_state.get("asist_ok_time",_time_asist.time())
+                if "asist_ok_time" not in st.session_state:
+                    st.session_state["asist_ok_time"]=_time_asist.time()
+                _elapsed=_time_asist.time()-st.session_state.get("asist_ok_time",_time_asist.time())
+                if _elapsed<10:
+                    _time_asist.sleep(max(0,10-_elapsed))
+                _msg_placeholder.empty()
+                st.session_state.asist_ok=None
+                st.session_state.pop("asist_ok_time",None)
+                st.rerun()
 
     # ── MI FICHA (modo cliente) ───────────────────────────────────────────
     elif modo_cli == "🔍  Mi ficha":
@@ -1403,40 +1462,19 @@ if "sidebar_visible" not in st.session_state:
     st.session_state.sidebar_visible = True
 
 # ── NAVBAR HORIZONTAL ─────────────────────────────────────────────────────────
-st.markdown(f"""<style>
-section[data-testid="stSidebar"]{{display:none !important;}}
-div[data-testid="stSidebarCollapsedControl"]{{display:none !important;}}
-button[data-testid="baseButton-headerNoPadding"]{{display:none !important;}}
-.navbar-radio div[role="radiogroup"],
-.navbar-radio [data-testid="stHorizontalBlock"] {{
-    display:flex !important;flex-direction:row !important;
-    flex-wrap:wrap !important;gap:4px !important;
-    background:{GRIS2} !important;
-    border-radius:10px !important;padding:5px !important;
-}}
-.navbar-radio div[role="radiogroup"] label,
-.navbar-radio [data-testid="stHorizontalBlock"] label {{
-    background:{GRIS3} !important;color:{BLANCO} !important;
-    border-radius:7px !important;padding:7px 0 !important;
-    font-size:.88rem !important;font-weight:700 !important;
-    cursor:pointer !important;margin:0 !important;
-    border:1px solid transparent !important;
-    white-space:nowrap !important;
-    flex:0 0 calc(20% - 4px) !important;
-    max-width:calc(20% - 4px) !important;
-    text-align:center !important;
-    box-sizing:border-box !important;
-}}
-.navbar-radio div[role="radiogroup"] label:has(input:checked) {{
-    background:{VERDE} !important;color:{NEGRO} !important;
-    border-color:{VERDE} !important;font-weight:900 !important;
-}}
-.navbar-radio div[role="radiogroup"] label:hover {{
-    background:{GRIS4} !important;border-color:{VERDE}88 !important;
-}}
-.navbar-radio div[role="radiogroup"] label span {{color:inherit !important;font-size:.88rem !important;}}
-.navbar-radio [data-testid="stMarkdownContainer"] p {{display:none;}}
-</style>""",unsafe_allow_html=True)
+# Colores por módulo
+_NAV_COLORES={
+    "🏠 Dashboard":    "#6DBE45",  # verde
+    "👥 Clientes":     "#3A9BD5",  # celeste
+    "💳 Pagos y Renovaciones": "#E8A838",  # naranja
+    "✅ Asistencia":   "#22C55E",  # verde claro
+    "🏃 Clases & Talleres": "#E91E8C",  # fucsia
+    "🛍 Venta Productos":   "#F5C518",  # amarillo
+    "💪 Ejercicios":   "#3B82F6",  # azul
+    "📋 Rutinas":      "#6DBE45",  # verde
+    "📊 Reportes":     "#9CA3AF",  # gris
+    "⚙️ Base de Datos":"#E85050",  # rojo
+}
 
 _opciones_nav=[
     "🏠 Dashboard","👥 Clientes","💳 Pagos y Renovaciones",
@@ -1450,11 +1488,46 @@ _permisos_pagina={
     "📊 Reportes":"reportes","⚙️ Base de Datos":"db",
 }
 _opciones_nav=[o for o in _opciones_nav if tiene_permiso(_permisos_pagina.get(o,"dashboard"))]
-_idx_default=0
-if st.session_state.get("_goto") and st.session_state["_goto"] in _opciones_nav:
-    _idx_default=_opciones_nav.index(st.session_state["_goto"])
-    st.session_state["_goto"]=None
 
+# Manejar _goto
+if st.session_state.get("_goto") and st.session_state["_goto"] in _opciones_nav:
+    st.session_state["_nav_activo"]=st.session_state["_goto"]
+    st.session_state["_goto"]=None
+if "_nav_activo" not in st.session_state:
+    st.session_state["_nav_activo"]=_opciones_nav[0]
+if st.session_state["_nav_activo"] not in _opciones_nav:
+    st.session_state["_nav_activo"]=_opciones_nav[0]
+pagina=st.session_state["_nav_activo"]
+
+# CSS botones navbar
+_nav_css=""
+for _ni,_nop in enumerate(_opciones_nav):
+    _nc=_NAV_COLORES.get(_nop,"#6DBE45")
+    _row=_ni//5; _col=_ni%5
+    # selector por fila y posición
+    _is_act = _nop==pagina
+    _bg="#0D0D0D" if not _is_act else f"{_nc}22"
+    _border=f"2px solid {'#333' if not _is_act else _nc}"
+    _color=_nc if _is_act else "#888"
+    _shadow=f"0 0 8px {_nc}88" if _is_act else "none"
+    _nav_css+=f"""
+    button[data-testid="btn_nav_{_ni}"] {{
+        background:{_bg} !important;border:{_border} !important;
+        color:{_color} !important;border-radius:8px !important;
+        font-size:.82rem !important;font-weight:700 !important;
+        padding:6px 4px !important;height:auto !important;
+        white-space:normal !important;text-align:center !important;
+        box-shadow:{_shadow} !important;
+    }}"""
+
+st.markdown(f"""<style>
+section[data-testid="stSidebar"]{{display:none !important;}}
+div[data-testid="stSidebarCollapsedControl"]{{display:none !important;}}
+button[data-testid="baseButton-headerNoPadding"]{{display:none !important;}}
+{_nav_css}
+</style>""",unsafe_allow_html=True)
+
+# Render navbar
 _n1,_n2,_n3=st.columns([1.2,6,1.2])
 with _n1:
     if LOGO_PATH:
@@ -1462,9 +1535,22 @@ with _n1:
         _logo_nav=_b64nav.b64encode(open(LOGO_PATH,"rb").read()).decode()
         st.markdown(f'<img src="data:image/png;base64,{_logo_nav}" style="height:120px;display:block;margin:0 auto">',unsafe_allow_html=True)
 with _n2:
-    st.markdown('<div class="navbar-radio">',unsafe_allow_html=True)
-    pagina=st.radio("",_opciones_nav,index=min(_idx_default,len(_opciones_nav)-1),
-        horizontal=True,label_visibility="collapsed",key="nav_pagina")
+    st.markdown(f'<div style="background:{GRIS2};border-radius:10px;padding:5px;">',unsafe_allow_html=True)
+    # Fila 1
+    _nrow1=st.columns(5)
+    for _ni in range(min(5,len(_opciones_nav))):
+        _nop=_opciones_nav[_ni]
+        _nc=_NAV_COLORES.get(_nop,"#6DBE45")
+        _is_act=_nop==pagina
+        if _nrow1[_ni].button(_nop,key=f"btn_nav_{_ni}",use_container_width=True):
+            st.session_state["_nav_activo"]=_nop; st.rerun()
+    # Fila 2
+    if len(_opciones_nav)>5:
+        _nrow2=st.columns(5)
+        for _ni in range(5,min(10,len(_opciones_nav))):
+            _nop=_opciones_nav[_ni]
+            if _nrow2[_ni-5].button(_nop,key=f"btn_nav_{_ni}",use_container_width=True):
+                st.session_state["_nav_activo"]=_nop; st.rerun()
     st.markdown('</div>',unsafe_allow_html=True)
 with _n3:
     mins=max(0,int((SESSION_H*3600-(time.time()-st.session_state.login_time))/60))
