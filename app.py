@@ -726,7 +726,7 @@ st.markdown(f"""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap');
 html,body,[class*="css"]{{font-family:'Inter',sans-serif;background:{NEGRO};color:{BLANCO};font-size:17px;}}
 .stApp{{background:{NEGRO};}}
-  .block-container{{padding-top:0.2rem !important;padding-bottom:0rem !important;max-width:100% !important;}}
+  .block-container{{padding-top:0.5rem !important;padding-bottom:0rem !important;max-width:100% !important;margin-top:-1rem !important;}}
   /* Reducir espacios internos para aprovechar pantalla */
   div[data-testid="stVerticalBlock"] > div {{gap:0.25rem !important;}}
   div[data-testid="stHorizontalBlock"] {{gap:0.4rem !important;}}
@@ -1036,6 +1036,8 @@ if st.session_state.modo == "micuenta" and st.session_state.get("cliente_loguead
         if st.button("← Salir"): st.session_state.update({"cliente_logueado":False,"modo":""}); st.rerun()
         st.stop()
     _r_mc=_df_mc.iloc[0].to_dict()
+    # Contenedor centrado para Mi Cuenta
+    st.markdown('<div style="max-width:900px;margin:0 auto">',unsafe_allow_html=True)
     # Encabezado
     _mc1,_mc2=st.columns([5,1])
     _mc1.markdown(f'<div style="border-left:4px solid {AZUL};padding-left:12px;"><span style="font-size:1.3rem;font-weight:900;color:{AZUL}">{sv(_r_mc,"nombre")}</span> <span style="color:{GRIS_T};font-size:.85rem">· {_rut_mc}</span></div>',unsafe_allow_html=True)
@@ -1056,6 +1058,13 @@ if st.session_state.modo == "micuenta" and st.session_state.get("cliente_loguead
                 _qr_mc=generar_qr_b64(f"PUTU|{_rut_mc}|{sv(_r_mc,'nombre')}")
                 st.markdown(f'<img src="data:image/png;base64,{_qr_mc}" style="width:100%;border-radius:8px;border:1px solid #2E2E2E">',unsafe_allow_html=True)
                 st.markdown(f'<div style="font-size:.65rem;color:{GRIS_T};text-align:center">QR Asistencia</div>',unsafe_allow_html=True)
+            # Subir foto de perfil
+            _fup_mc=st.file_uploader("📷 Subir foto",type=["jpg","jpeg","png"],key=f"mc_foto_up_{_rut_mc}",label_visibility="collapsed",help="Subir foto de perfil")
+            if _fup_mc:
+                _fp2_mc=os.path.join(FOTOS_DIR,f"{_rut_mc.replace('-','_')}.{_fup_mc.name.split('.')[-1]}")
+                with open(_fp2_mc,"wb") as _f2mc: _f2mc.write(_fup_mc.getbuffer())
+                _cmc2=get_conn(); _cmc2.execute("UPDATE clientes SET foto_path=? WHERE rut=?",(_fp2_mc,_rut_mc)); _cmc2.commit(); _cmc2.close()
+                st.cache_data.clear(); st.success("✅ Foto actualizada"); st.rerun()
         with _mp2:
             _col_mc_sx="#E91E8C" if sv(_r_mc,"sexo").lower()=="femenino" else AZUL
             st.markdown(f'''<div style="border-left:4px solid {_col_mc_sx};padding-left:14px;">
@@ -1130,7 +1139,16 @@ if st.session_state.modo == "micuenta" and st.session_state.get("cliente_loguead
             _em1.metric("⚖️ Peso",_emv_mc("peso"," kg")); _em2.metric("📊 IMC",_emv_mc("imc"))
             _em3.metric("🔴 Grasa",_emv_mc("grasa_pct"," %")); _em4.metric("💪 Musc.",_emv_mc("masa_musc"," %"))
             _ev_mc_d=_ev_mc.copy(); _ev_mc_d["fecha"]=_ev_mc_d["fecha"].apply(fmt_fecha)
-            st.dataframe(_ev_mc_d[["fecha","peso","imc","grasa_pct","masa_musc","agua_pct"]].rename(columns={"fecha":"Fecha","peso":"Peso kg","imc":"IMC","grasa_pct":"Grasa %","masa_musc":"Musc. %","agua_pct":"Agua %"}),use_container_width=True,hide_index=True)
+            st.dataframe(_ev_mc_d[["fecha","peso","imc","grasa_pct","masa_musc","agua_pct"]].rename(columns={"fecha":"Fecha","peso":"Peso kg","imc":"IMC","grasa_pct":"Grasa %","masa_musc":"Musc. %","agua_pct":"Agua %"}),
+                use_container_width=False,hide_index=True,
+                column_config={
+                    "Fecha":st.column_config.TextColumn("Fecha",width=90),
+                    "Peso kg":st.column_config.NumberColumn("Peso kg",width=80),
+                    "IMC":st.column_config.NumberColumn("IMC",width=70),
+                    "Grasa %":st.column_config.NumberColumn("Grasa %",width=80),
+                    "Musc. %":st.column_config.NumberColumn("Musc. %",width=80),
+                    "Agua %":st.column_config.NumberColumn("Agua %",width=75),
+                })
 
     with _tmc3:
         _pg_mc=db_query("SELECT fecha,monto,concepto,tipo_plan,medio_pago FROM pagos WHERE rut=? ORDER BY fecha DESC",(_rut_mc,))
@@ -1149,6 +1167,7 @@ if st.session_state.modo == "micuenta" and st.session_state.get("cliente_loguead
             _pnr_mc=_pn_mc.iloc[0].to_dict()
             st.markdown(f'<div style="background:{GRIS2};border-radius:8px;padding:10px 14px;"><b style="color:{AZUL}">{_pnr_mc["nombre"]}</b> · 🎯 {_pnr_mc.get("objetivo","—")} · 🔥 {int(_pnr_mc.get("kcal_objetivo") or 0):,} kcal/día</div>',unsafe_allow_html=True)
             st.markdown(f"<span style='color:{GRIS_T};font-size:.85rem'>Profesional: {_pnr_mc.get('profesional','—')}</span>",unsafe_allow_html=True)
+    st.markdown('</div>',unsafe_allow_html=True)  # cierre max-width Mi Cuenta
     st.stop()
 
 hoy = date.today()
@@ -1180,31 +1199,29 @@ if st.session_state.modo == "cliente":
         _ca.commit(); _ca.close()
     except: pass
 
-    # Sidebar mínimo para modo cliente
-    with st.sidebar:
+    # Ocultar sidebar en modo kiosko
+    st.markdown('<style>section[data-testid="stSidebar"]{display:none!important}div[data-testid="stSidebarCollapsedControl"]{display:none!important}</style>',unsafe_allow_html=True)
+    # Contenedor centrado y limitado para kiosko
+    st.markdown('<div style="max-width:860px;margin:0 auto">',unsafe_allow_html=True)
+
+    # ── Encabezado kiosko: Logo centrado + botón Inicio ─────────────────────
+    _ki_h1,_ki_h2=st.columns([5,1])
+    with _ki_h1:
         if LOGO_PATH:
-            st.markdown(f'''<div style="text-align:center;padding:0;margin:-12px -8px 6px -8px;">
-              <img src="data:image/png;base64,{__import__("base64").b64encode(open(LOGO_PATH,"rb").read()).decode()}"
-                   style="width:100%;max-width:220px;display:block;margin:0 auto;"/>
-            </div>''',unsafe_allow_html=True)
+            import base64 as _b64ki
+            _logo_ki=_b64ki.b64encode(open(LOGO_PATH,"rb").read()).decode()
+            st.markdown(f'<div style="text-align:center"><img src="data:image/png;base64,{_logo_ki}" style="height:130px;display:inline-block"></div>',unsafe_allow_html=True)
         else:
-            st.markdown(f'<div style="font-size:1.4rem;font-weight:900;color:{VERDE};text-align:center">🏋️ PUTÚ ACTIVO</div>',unsafe_allow_html=True)
-        st.markdown("---")
-        # Mostrar próximas clases en sidebar (sin link)
-        clases_prox=db_query("SELECT titulo,fecha,hora FROM clases WHERE fecha>=? AND participante LIKE '%[CLASE]%' ORDER BY fecha,hora LIMIT 5",(str(hoy),))
-        if not clases_prox.empty:
-            st.markdown(f'<div style="background:{GRIS2};border-radius:8px;padding:8px 10px;margin-bottom:6px;">',unsafe_allow_html=True)
-            st.markdown(f'<div style="color:{VERDE};font-weight:700;font-size:.85rem;margin-bottom:4px">📅 Próximas clases</div>',unsafe_allow_html=True)
-            for _,cl in clases_prox.iterrows():
-                st.markdown(f'<div style="font-size:.78rem;color:{GRIS_T};padding:2px 0"><b style="color:{BLANCO}">{cl["titulo"]}</b> · {fmt_fecha(cl["fecha"])} {str(cl["hora"])[:5]}</div>',unsafe_allow_html=True)
-            st.markdown('</div>',unsafe_allow_html=True)
-        modo_cli = st.radio("",["✅  Asistencia","🔍  Mi ficha"],
-            index=["✅  Asistencia","🔍  Mi ficha"].index(
-                st.session_state.pop("_modo_cli_override","✅  Asistencia")
-                if st.session_state.get("_modo_cli_override") else "✅  Asistencia"))
-        st.markdown("---")
-        if st.button("← Inicio"):
+            st.markdown(f'<div style="text-align:center;font-size:1.5rem;font-weight:900;color:{VERDE}">🏋️ PUTÚ ACTIVO</div>',unsafe_allow_html=True)
+    with _ki_h2:
+        st.markdown("<div style='padding-top:40px'>",unsafe_allow_html=True)
+        if st.button("← Inicio",key="ki_inicio",use_container_width=True):
             st.session_state.modo=""; st.session_state.rut_cliente=""; st.rerun()
+        st.markdown("</div>",unsafe_allow_html=True)
+    st.markdown(f'<hr style="margin:4px 0;border-color:#2E2E2E">',unsafe_allow_html=True)
+
+    # modo_cli — asistencia por defecto, pero permite ver ficha desde EN SALA
+    modo_cli=st.session_state.pop("_modo_cli_override","✅  Asistencia") if st.session_state.get("_modo_cli_override") else "✅  Asistencia"
 
     # ── ASISTENCIA (modo cliente) ──────────────────────────────────────────
     if modo_cli == "✅  Asistencia":
@@ -1235,7 +1252,7 @@ if st.session_state.modo == "cliente":
                 st.session_state.asist_ok={"ok":True,"nombre":c["nombre"],"rut":c["rut"],"plan":c["tipo_plan"],"hora":hora_str,"tipo":"salida","emoji":"👋"}
 
         st.markdown(f'<div class="section-header" style="font-size:1.1rem;margin-bottom:6px">✅ Asistencia</div>',unsafe_allow_html=True)
-        col_tec,col_disp=st.columns([1,1])
+        col_tec,col_disp=st.columns([1,1.4])
         with col_tec:
             # ── Display en vivo del RUT siendo tecleado ──
             rut_vivo = st.session_state.rut_buf or "_ _ _ _ _ _ _"
@@ -1266,10 +1283,12 @@ if st.session_state.modo == "cliente":
             # Teclado grande — CSS extra para botones más grandes en kiosko
             st.markdown(f"""<style>
             div[data-testid="stHorizontalBlock"] button[kind="secondary"] {{
-                font-size:2rem !important; font-weight:900 !important;
-                padding:6px 4px !important; min-height:52px !important; line-height:1 !important;
+                font-size:1.6rem !important; font-weight:900 !important;
+                padding:5px 4px !important; min-height:46px !important; line-height:1 !important;
             }}
             </style>""",unsafe_allow_html=True)
+            # Contenedor compacto para el teclado
+            st.markdown('<div style="max-width:280px;margin:0 auto">',unsafe_allow_html=True)
             nums=[["1","2","3"],["4","5","6"],["7","8","9"],["-","0","⌫"]]
             for fila in nums:
                 cols=st.columns(3)
@@ -1283,6 +1302,7 @@ if st.session_state.modo == "cliente":
                 st.session_state.rut_buf+="K"; st.session_state.asist_ok=None; st.rerun()
             if ck2.button("🗑 Borrar",key="cli_bor",use_container_width=True):
                 st.session_state.rut_buf=""; st.session_state.asist_ok=None; st.rerun()
+            st.markdown('</div>',unsafe_allow_html=True)
 
             # ── Escanear QR con cámara ──
             if QR_SCAN_DISPONIBLE:
@@ -1306,6 +1326,8 @@ if st.session_state.modo == "cliente":
 
         with col_disp:
             asist_hoy=db_query("SELECT * FROM asistencia WHERE fecha=? ORDER BY hora DESC",(str(hoy),))
+            # Próximas clases en contenido principal
+            clases_prox=db_query("SELECT titulo,fecha,hora FROM clases WHERE fecha>=? ORDER BY fecha,hora LIMIT 5",(str(hoy),))
             st.markdown(f'<div style="background:{GRIS2};border:1px solid {GRIS3};border-radius:12px;padding:10px;">',unsafe_allow_html=True)
             if not asist_hoy.empty and "tipo" in asist_hoy.columns:
                 en_sala=asist_hoy[(asist_hoy["tipo"]=="ingreso")&(asist_hoy["hora_salida"].isna()|asist_hoy["hora_salida"].eq(""))]
@@ -1331,6 +1353,14 @@ if st.session_state.modo == "cliente":
                         st.session_state.rut_cliente=_rut_sala.upper()
                         st.session_state["_modo_cli_override"]="🔍  Mi ficha"; st.rerun()
             st.markdown("</div>",unsafe_allow_html=True)
+
+            # ── Próximas clases ──────────────────────────────────────
+            if not clases_prox.empty:
+                st.markdown(f'<div style="background:{GRIS2};border-radius:10px;padding:10px 12px;margin-top:8px;">',unsafe_allow_html=True)
+                st.markdown(f'<div style="color:{VERDE};font-weight:700;font-size:.88rem;margin-bottom:4px">📅 Próximas clases</div>',unsafe_allow_html=True)
+                for _,_cl in clases_prox.iterrows():
+                    st.markdown(f'<div style="font-size:.8rem;color:{GRIS_T};padding:2px 0"><b style="color:{BLANCO}">{_cl["titulo"]}</b> · {fmt_fecha(_cl["fecha"])} {str(_cl["hora"])[:5]}</div>',unsafe_allow_html=True)
+                st.markdown('</div>',unsafe_allow_html=True)
 
             # ── Mensaje de bienvenida/salida — debajo de "En sala" ──
             if st.session_state.asist_ok:
@@ -1452,6 +1482,7 @@ if st.session_state.modo == "cliente":
                     st.markdown(f'<div style="font-weight:700;color:{VERDE};margin:12px 0 6px">✅ Últimas asistencias</div>',unsafe_allow_html=True)
                     st.dataframe(ult_as.rename(columns={"fecha":"Fecha","hora":"Hora","tipo":"Tipo"}),use_container_width=True,height=220)
 
+    st.markdown('</div>',unsafe_allow_html=True)  # cierre max-width kiosko
     st.stop()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1514,8 +1545,8 @@ for _ni,_nop in enumerate(_opciones_nav):
     button[data-testid="btn_nav_{_ni}"] {{
         background:{_bg} !important;border:{_border} !important;
         color:{_color} !important;border-radius:8px !important;
-        font-size:.82rem !important;font-weight:700 !important;
-        padding:6px 4px !important;height:auto !important;
+        font-size:.75rem !important;font-weight:700 !important;
+        padding:4px 2px !important;height:auto !important;
         white-space:normal !important;text-align:center !important;
         box-shadow:{_shadow} !important;
     }}"""
@@ -1528,12 +1559,12 @@ button[data-testid="baseButton-headerNoPadding"]{{display:none !important;}}
 </style>""",unsafe_allow_html=True)
 
 # Render navbar
-_n1,_n2,_n3=st.columns([1.2,6,1.2])
+_n1,_n2,_n3=st.columns([1,6.5,1])
 with _n1:
     if LOGO_PATH:
         import base64 as _b64nav
         _logo_nav=_b64nav.b64encode(open(LOGO_PATH,"rb").read()).decode()
-        st.markdown(f'<img src="data:image/png;base64,{_logo_nav}" style="height:120px;display:block;margin:0 auto">',unsafe_allow_html=True)
+        st.markdown(f'<img src="data:image/png;base64,{_logo_nav}" style="height:160px;display:block;margin:0 auto">',unsafe_allow_html=True)
 with _n2:
     st.markdown(f'<div style="background:{GRIS2};border-radius:10px;padding:5px;">',unsafe_allow_html=True)
     # Fila 1
