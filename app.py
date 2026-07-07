@@ -1175,10 +1175,11 @@ if st.session_state.modo == "micuenta" and st.session_state.get("cliente_loguead
             st.markdown(f"<span style='color:{GRIS_T};font-size:.85rem'>Profesional: {_pnr_mc.get('profesional','—')}</span>",unsafe_allow_html=True)
     with _tmc5:
         st.markdown(f"<b style='color:{AZUL}'>📅 Clases disponibles</b>",unsafe_allow_html=True)
+        _hoy_mc=date.today()
         _clases_disp=db_query("""SELECT * FROM clases
             WHERE participante LIKE '%[CLASE]%'
             AND fecha >= ?
-            ORDER BY fecha,hora""",(str(hoy),))
+            ORDER BY fecha,hora""",(_hoy_mc.isoformat(),))
         if _clases_disp.empty:
             st.markdown('<div class="info-box">No hay clases disponibles próximamente.</div>',unsafe_allow_html=True)
         else:
