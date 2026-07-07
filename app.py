@@ -727,6 +727,10 @@ st.markdown(f"""
 html,body,[class*="css"]{{font-family:'Inter',sans-serif;background:{NEGRO};color:{BLANCO};font-size:17px;}}
 .stApp{{background:{NEGRO};}}
   .block-container{{padding-top:0.5rem !important;padding-bottom:0rem !important;max-width:100% !important;margin-top:-1rem !important;}}
+  /* Limitar ancho en modos kiosko y micuenta via clase en body */
+  .kiosko-mode .block-container, .micuenta-mode .block-container {{
+    max-width:900px !important;margin-left:auto !important;margin-right:auto !important;
+  }}
   /* Reducir espacios internos para aprovechar pantalla */
   div[data-testid="stVerticalBlock"] > div {{gap:0.25rem !important;}}
   div[data-testid="stHorizontalBlock"] {{gap:0.4rem !important;}}
@@ -1036,6 +1040,8 @@ if st.session_state.modo == "micuenta" and st.session_state.get("cliente_loguead
         if st.button("← Salir"): st.session_state.update({"cliente_logueado":False,"modo":""}); st.rerun()
         st.stop()
     _r_mc=_df_mc.iloc[0].to_dict()
+    # Limitar ancho encabezado Mi Cuenta
+    st.markdown('<style>.block-container{max-width:900px!important;margin-left:auto!important;margin-right:auto!important}</style>',unsafe_allow_html=True)
     # Contenedor centrado para Mi Cuenta
     st.markdown('<div style="max-width:900px;margin:0 auto">',unsafe_allow_html=True)
     # Encabezado
@@ -1045,7 +1051,7 @@ if st.session_state.modo == "micuenta" and st.session_state.get("cliente_loguead
         st.session_state.update({"cliente_logueado":False,"cliente_rut":"","modo":""}); st.rerun()
     st.markdown("---")
     # Tabs solo lectura
-    _tmc0,_tmc1,_tmc2,_tmc3,_tmc4=st.tabs(["👤 Mi Perfil","💪 Mi Rutina","📏 Evaluaciones","💳 Pagos","🥗 Nutrición"])
+    _tmc0,_tmc1,_tmc2,_tmc3,_tmc4,_tmc5=st.tabs(["👤 Mi Perfil","💪 Mi Rutina","📏 Evaluaciones","💳 Pagos","🥗 Nutrición","📅 Clases"])
 
     with _tmc0:
         # Foto + datos personales + membresía
@@ -1167,6 +1173,55 @@ if st.session_state.modo == "micuenta" and st.session_state.get("cliente_loguead
             _pnr_mc=_pn_mc.iloc[0].to_dict()
             st.markdown(f'<div style="background:{GRIS2};border-radius:8px;padding:10px 14px;"><b style="color:{AZUL}">{_pnr_mc["nombre"]}</b> · 🎯 {_pnr_mc.get("objetivo","—")} · 🔥 {int(_pnr_mc.get("kcal_objetivo") or 0):,} kcal/día</div>',unsafe_allow_html=True)
             st.markdown(f"<span style='color:{GRIS_T};font-size:.85rem'>Profesional: {_pnr_mc.get('profesional','—')}</span>",unsafe_allow_html=True)
+    with _tmc5:
+        st.markdown(f"<b style='color:{AZUL}'>📅 Clases disponibles</b>",unsafe_allow_html=True)
+        _clases_disp=db_query("""SELECT * FROM clases
+            WHERE participante LIKE '%[CLASE]%'
+            AND fecha >= ?
+            ORDER BY fecha,hora""",(str(hoy),))
+        if _clases_disp.empty:
+            st.markdown('<div class="info-box">No hay clases disponibles próximamente.</div>',unsafe_allow_html=True)
+        else:
+            for _,_cls in _clases_disp.iterrows():
+                _clsd=_cls.to_dict()
+                _cls_tit=str(_clsd.get("titulo",""))
+                _cls_fec=str(_clsd.get("fecha",""))
+                _cls_hor=str(_clsd.get("hora",""))[:5]
+                _cls_obs=str(_clsd.get("observacion",""))
+                # Extraer cupos e instructor
+                import re as _re_cls
+                _m_cupos=_re_cls.search(r"Cupos:(\d+)",_cls_obs)
+                _m_inst=_re_cls.search(r"Instructor:([^C]+)",_cls_obs)
+                _cupos_max=int(_m_cupos.group(1)) if _m_cupos else 10
+                _inst=_m_inst.group(1).strip() if _m_inst else "—"
+                # Contar inscritos
+                _ya_ins=db_query("SELECT COUNT(*) as n FROM clases WHERE titulo=? AND fecha=? AND participante NOT LIKE '%[CLASE]%'",(
+                    _cls_tit,_cls_fec)).iloc[0]["n"]
+                _cupos_disp=_cupos_max-_ya_ins
+                _col_cupos=VERDE if _cupos_disp>3 else NARANJA if _cupos_disp>0 else ROJO
+                # Verificar si ya está inscrito
+                _ya_yo=db_query("SELECT id FROM clases WHERE titulo=? AND fecha=? AND participante=? AND participante NOT LIKE '%[CLASE]%'",(
+                    _cls_tit,_cls_fec,sv(_r_mc,"nombre"))).empty==False
+                with st.container(border=True):
+                    _cc1,_cc2=st.columns([3,1])
+                    _cc1.markdown(f"""<b style='color:{AZUL}'>{_cls_tit}</b><br>
+                        <span style='font-size:.85rem;color:{GRIS_T}'>📅 {fmt_fecha(_cls_fec)} · 🕐 {_cls_hor}</span><br>
+                        <span style='font-size:.82rem;color:{GRIS_T}'>👤 Instructor: {_inst}</span><br>
+                        <span style='font-size:.82rem;color:{_col_cupos}'>Cupos disponibles: {_cupos_disp}/{_cupos_max}</span>
+                    """,unsafe_allow_html=True)
+                    if _ya_yo:
+                        _cc2.markdown(f"<div style='color:{VERDE};font-weight:700;text-align:center;padding-top:20px'>✅ Inscrito</div>",unsafe_allow_html=True)
+                    elif _cupos_disp<=0:
+                        _cc2.markdown(f"<div style='color:{ROJO};font-weight:700;text-align:center;padding-top:20px'>❌ Sin cupos</div>",unsafe_allow_html=True)
+                    else:
+                        if _cc2.button("✅ Inscribirme",key=f"mc_ins_{_clsd['id']}",use_container_width=True):
+                            _cnins=get_conn()
+                            _cnins.execute("INSERT INTO clases (tipo,titulo,fecha,hora,participante,monto,observacion,usuario) VALUES (?,?,?,?,?,?,?,?)",
+                                (_clsd.get("tipo",""),_cls_tit,_cls_fec,_cls_hor,
+                                 sv(_r_mc,"nombre"),0,"Pago pendiente — inscripción online","cliente"))
+                            _cnins.commit(); _cnins.close()
+                            st.success(f"✅ Inscrito en {_cls_tit} · Pago pendiente en recepción"); st.rerun()
+
     st.markdown('</div>',unsafe_allow_html=True)  # cierre max-width Mi Cuenta
     st.stop()
 
@@ -1199,8 +1254,8 @@ if st.session_state.modo == "cliente":
         _ca.commit(); _ca.close()
     except: pass
 
-    # Ocultar sidebar en modo kiosko
-    st.markdown('<style>section[data-testid="stSidebar"]{display:none!important}div[data-testid="stSidebarCollapsedControl"]{display:none!important}</style>',unsafe_allow_html=True)
+    # Ocultar sidebar en modo kiosko + limitar ancho
+    st.markdown('<style>section[data-testid="stSidebar"]{display:none!important}div[data-testid="stSidebarCollapsedControl"]{display:none!important}.block-container{max-width:860px!important;margin-left:auto!important;margin-right:auto!important}</style>',unsafe_allow_html=True)
     # Contenedor centrado y limitado para kiosko
     st.markdown('<div style="max-width:860px;margin:0 auto">',unsafe_allow_html=True)
 
